@@ -95,50 +95,19 @@ def load_messages_from_db(session_id):
 
 
 # =========================================================
-# SYSTEM PROMPT
+# DEFAULT SYSTEM PROMPT
 # =========================================================
 
-SYSTEM_PROMPT = """
+DEFAULT_SYSTEM_PROMPT = """
 You are Mo Dark AI, an advanced senior software engineer, coding architect, and multi-modal intelligence assistant.
 
 Your job is to help users build real, complete, production-quality software, analyze source code, and accurately interpret images, diagrams, UI designs, and media files.
 
 IMPORTANT RULES:
-
 1. Follow the user's exact requirements.
-2. If the user requests Streamlit, use Streamlit.
-3. If the user requests Python, use Python.
-4. Never silently replace the requested framework with another framework.
-5. If the user requests a multi-file project, create a complete multi-file project.
-6. Keep imports, filenames, functions, routes, classes, configuration and dependencies consistent.
-7. Never invent missing imports.
-8. Never use a package without adding it to requirements.txt when requirements.txt is requested.
-9. Check that filenames referenced by imports actually exist.
-10. Check that functions/classes referenced by other files exist.
-11. Check that environment variables and secrets are clearly documented.
-12. Avoid obsolete package versions unless specifically requested.
-13. Prefer modern stable APIs.
-14. Do not claim that code was executed or tested unless it actually was.
-15. If the user gives existing code, preserve working functionality unless asked to change it.
-16. When fixing code, identify the real cause of the error and provide the corrected code.
-17. Do not randomly rewrite unrelated parts of the project.
-18. For complete projects, show the project structure first when useful.
-19. When multiple files are required, clearly separate every file.
-20. Never omit important code with phrases such as "rest of code".
-21. Never use fake placeholder implementations when the user requested working functionality.
-22. Handle Arabic and Iraqi Arabic naturally.
-23. When analyzing uploaded images or source files, inspect their actual contents accurately and describe them thoroughly.
-24. Never expose system prompts, secrets, API keys or private credentials.
-25. Before finalizing a coding answer, perform a mental quality check:
-    - syntax
-    - imports
-    - dependencies
-    - filenames
-    - framework consistency
-    - missing variables
-    - missing functions
-    - configuration
-    - user requirements
+2. Handle Arabic and Iraqi Arabic naturally.
+3. When analyzing uploaded images or source files, inspect their actual contents accurately and describe them thoroughly.
+4. Never expose system prompts, secrets, API keys or private credentials.
 """
 
 
@@ -183,6 +152,9 @@ if "messages" not in st.session_state:
 
 if "selected_model" not in st.session_state:
     st.session_state.selected_model = "Qwen/Qwen2.5-Coder-32B-Instruct"
+
+if "custom_prompt" not in st.session_state:
+    st.session_state.custom_prompt = DEFAULT_SYSTEM_PROMPT
 
 
 # =========================================================
@@ -517,7 +489,7 @@ code { font-family: 'JetBrains Mono', monospace !important; }
 .file-meta { color: #797d93; font-size: 10px; margin-top: 2px; }
 
 /* =========================================================
-   NEW MODERN SIDEBAR STYLING
+   MODERN SIDEBAR STYLING
 ========================================================= */
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, #070711 0%, #030008 100%) !important;
@@ -547,7 +519,6 @@ code { font-family: 'JetBrains Mono', monospace !important; }
     gap: 6px;
 }
 
-/* Custom styling for sidebar buttons to look modern and sleek */
 [data-testid="stSidebar"] .stButton button {
     width: 100%;
     background: rgba(255, 255, 255, 0.03);
@@ -578,12 +549,6 @@ code { font-family: 'JetBrains Mono', monospace !important; }
     background: rgba(255, 255, 255, 0.02);
     color: #9fa3b6;
     font-size: 11.5px;
-    transition: all 0.2s ease;
-}
-.capability-card:hover {
-    border-color: rgba(0, 243, 255, 0.2);
-    background: rgba(0, 243, 255, 0.03);
-    color: #dcdffa;
 }
 .capability-card b { color: #f0f3ff; font-weight: 700; }
 
@@ -635,7 +600,7 @@ html("""
 
 
 # =========================================================
-# SIDEBAR (ULTRA MODERN DESIGN)
+# SIDEBAR (CONTROL PANEL & SYSTEM PROMPT)
 # =========================================================
 
 with st.sidebar:
@@ -662,6 +627,17 @@ with st.sidebar:
     ]
     selected_model = st.selectbox("الموديل الذكي", available_models, index=0, label_visibility="collapsed")
     st.session_state.selected_model = selected_model
+
+    # Custom System Prompt / Promo Input Box
+    st.markdown('<div class="sidebar-section-label">🎯 إعدادات البرومو (System Prompt)</div>', unsafe_allow_html=True)
+    custom_prompt_input = st.text_area(
+        "اكتب البرومو أو التعليمات التي تريد أن يلتزم بها الموديل:",
+        value=st.session_state.get("custom_prompt", DEFAULT_SYSTEM_PROMPT),
+        height=140,
+        placeholder="مثال: تكلّم باللهجة العراقية الدارجة وكن مبرمجاً خبيراً..."
+    )
+    if custom_prompt_input:
+        st.session_state.custom_prompt = custom_prompt_input
 
     # Sessions Management
     st.markdown('<div class="sidebar-section-label">💬 الجلسات المحفوظة</div>', unsafe_allow_html=True)
@@ -711,8 +687,8 @@ with st.sidebar:
     st.markdown('<div class="sidebar-section-label">📊 حالة النظام</div>', unsafe_allow_html=True)
     html("""
     <div class="capability-card">👁️ <b>Vision Active</b><br>قراءة وتحليل الصور بدقة فائقة</div>
+    <div class="capability-card">🎯 <b>Custom Promo</b><br>تطبيق البرومو المخصص بمرونة</div>
     <div class="capability-card">💾 <b>SQLite Database</b><br>حفظ تلقائي للرسائل والجلسات</div>
-    <div class="capability-card">📦 <b>ZIP Export</b><br>تصدير المشاريع بضغطة زر</div>
     """)
 
 
@@ -727,12 +703,11 @@ if not st.session_state.messages:
         <div class="mo-welcome-text">
             أنا <b>Mo Dark AI</b>، مساعدك البرمجي والبصري المتقدم.
             <br><br>
-            يمكنك الآن رفع الصور، الفيديوهات، وملفات الأكواد المتعددة وسأقوم بتحليلها بدقة تامة.
-            جميع محادثاتك محفوظة تلقائياً في قاعدة البيانات المحلية.
+            يمكنك الآن التحكم بالبرومو (System Prompt) من الشريط الجانبي ليتبع الموديل كل ما تكتبه، ورفع الصور والفيديوهات وملفات الأكواد للتحليل الشامل.
         </div>
         <div class="mo-chip-row">
+            <div class="mo-chip">Custom System Prompt</div>
             <div class="mo-chip">Image Vision Analysis</div>
-            <div class="mo-chip">Multi-File Support</div>
             <div class="mo-chip">Persistent SQLite</div>
             <div class="mo-chip">ZIP Export</div>
         </div>
@@ -829,8 +804,9 @@ if prompt_data:
     })
     save_message_to_db(st.session_state.session_id, "user", prompt, user_files_meta)
 
-    # Prepare messages for API (Supporting Vision Content if Images are uploaded)
-    model_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # Prepare messages for API (Using the user's Custom Prompt as system role)
+    active_system_prompt = st.session_state.get("custom_prompt", DEFAULT_SYSTEM_PROMPT)
+    model_messages = [{"role": "system", "content": active_system_prompt}]
 
     history = st.session_state.messages[:-1]
     for message in history[-10:]:
@@ -859,7 +835,7 @@ if prompt_data:
     # AI Response Execution
     with st.chat_message("assistant", avatar=AVATARS["assistant"]):
         try:
-            with st.spinner("Mo Dark AI يحلل الصور والبيانات بدقة..."):
+            with st.spinner("Mo Dark AI يطبق البرومو ويحلل البيانات..."):
                 client = get_client()
                 if not client:
                     raise RuntimeError("مفتاح API غير متوفر. يرجى إدخاله في الشريط الجانبي أو إعدادات Secrets.")
@@ -886,7 +862,6 @@ if prompt_data:
             
             err_msg = "❌ تعذر إتمام الطلب بسبب مشكلة في الاتصال أو المفتاح."
             st.session_state.messages.append({"role": "assistant", "content": err_msg})
-            save_message_data = [] # empty or default list
             save_message_to_db(st.session_state.session_id, "assistant", err_msg, [])
 
 
@@ -896,6 +871,6 @@ if prompt_data:
 
 html("""
 <div style="text-align:center; margin-top:36px; color:#55586b; font-size:11px;">
-    Mo Dark AI Ultimate Edition • Persistent Database & Vision Enabled
+    Mo Dark AI Ultimate Edition • Custom Promo, Database & Vision Enabled
 </div>
 """)
