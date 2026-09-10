@@ -526,17 +526,28 @@ header { background: transparent !important; }
     background: rgba(255,255,255,0.03);
 }
 
-/* ===== CHAT ===== */
+/* ===== CHAT MESSAGES (CLEAR & VISIBLE) ===== */
 
 [data-testid="stChatMessage"] {
-    background: transparent !important;
-    border: none !important;
-    padding-top: 8px !important;
-    padding-bottom: 8px !important;
+    background: rgba(12, 12, 24, 0.6) !important;
+    border: 1px solid rgba(0, 243, 255, 0.12) !important;
+    border-radius: 16px !important;
+    padding: 12px 16px !important;
+    margin-bottom: 12px !important;
 }
 
-[data-testid="stChatMessageContent"] { border-radius: 16px !important; }
-[data-testid="stChatMessage"] p { line-height: 1.9; }
+[data-testid="stChatMessageContent"] {
+    color: #ffffff !important;
+}
+
+[data-testid="stChatMessage"] p, 
+[data-testid="stChatMessage"] span, 
+[data-testid="stChatMessage"] li {
+    color: #ffffff !important;
+    font-size: 15px !important;
+    line-height: 1.9 !important;
+    font-weight: 500 !important;
+}
 
 pre {
     border-radius: 14px !important;
