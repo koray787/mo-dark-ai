@@ -592,15 +592,14 @@ html("""
     <div class="mo-badge">⚡ FULLY LOADED & MULTI-MODAL</div>
     <h1 class="mo-title">MO DARK AI</h1>
     <div class="mo-description">
-        النسخة الخارقة المطورة: دعم الذاكرة الدائمة، فحص وتحليل الصور والفيديوهات بدقة،
-        تصدير المشاريع كـ ZIP، والتحكم الكامل بالنماذج والملفات.
+        النسخة الخارقة المطورة: مع زر حفظ البرومو والتأكيد الفوري، الذاكرة الدائمة، وفحص وتحليل الصور والفيديوهات.
     </div>
 </div>
 """)
 
 
 # =========================================================
-# SIDEBAR (CONTROL PANEL & SYSTEM PROMPT)
+# SIDEBAR (CONTROL PANEL & SYSTEM PROMPT WITH SAVE BUTTON)
 # =========================================================
 
 with st.sidebar:
@@ -630,14 +629,20 @@ with st.sidebar:
 
     # Custom System Prompt / Promo Input Box
     st.markdown('<div class="sidebar-section-label">🎯 إعدادات البرومو (System Prompt)</div>', unsafe_allow_html=True)
-    custom_prompt_input = st.text_area(
-        "اكتب البرومو أو التعليمات التي تريد أن يلتزم بها الموديل:",
+    
+    # We use a form or state variable handling for the prompt input
+    temp_prompt = st.text_area(
+        "اكتب البرومو أو التعليمات:",
         value=st.session_state.get("custom_prompt", DEFAULT_SYSTEM_PROMPT),
-        height=140,
-        placeholder="مثال: تكلّم باللهجة العراقية الدارجة وكن مبرمجاً خبيراً..."
+        height=130,
+        placeholder="مثال: تحدث باللهجة العراقية وكن مبرمجاً محترفاً...",
+        key="promo_text_area"
     )
-    if custom_prompt_input:
-        st.session_state.custom_prompt = custom_prompt_input
+
+    # Save Promo Button
+    if st.button("💾 حفظ وتفعيل البرومو", use_container_width=True):
+        st.session_state.custom_prompt = temp_prompt
+        st.success("✅ تم حفظ وتفعيل البرومو بنجاح!")
 
     # Sessions Management
     st.markdown('<div class="sidebar-section-label">💬 الجلسات المحفوظة</div>', unsafe_allow_html=True)
@@ -687,7 +692,7 @@ with st.sidebar:
     st.markdown('<div class="sidebar-section-label">📊 حالة النظام</div>', unsafe_allow_html=True)
     html("""
     <div class="capability-card">👁️ <b>Vision Active</b><br>قراءة وتحليل الصور بدقة فائقة</div>
-    <div class="capability-card">🎯 <b>Custom Promo</b><br>تطبيق البرومو المخصص بمرونة</div>
+    <div class="capability-card">🎯 <b>Saved Promo</b><br>مُفعل وجاهز للتطبيق الفوري</div>
     <div class="capability-card">💾 <b>SQLite Database</b><br>حفظ تلقائي للرسائل والجلسات</div>
     """)
 
@@ -699,14 +704,14 @@ with st.sidebar:
 if not st.session_state.messages:
     html("""
     <div class="mo-welcome-box">
-        <div class="mo-welcome-title">أهلاً بك في النسخة المطورة والفول الفول 👋</div>
+        <div class="mo-welcome-title">أهلاً بك في النسخة المطورة مع زر حفظ البرومو 👋</div>
         <div class="mo-welcome-text">
             أنا <b>Mo Dark AI</b>، مساعدك البرمجي والبصري المتقدم.
             <br><br>
-            يمكنك الآن التحكم بالبرومو (System Prompt) من الشريط الجانبي ليتبع الموديل كل ما تكتبه، ورفع الصور والفيديوهات وملفات الأكواد للتحليل الشامل.
+            يمكنك الآن تعديل البرومو من القائمة الجانبية والضغط على زر <b>حفظ وتفعيل البرومو</b> للتأكد من اعتماده فوراً في كل رسالة ترسلها.
         </div>
         <div class="mo-chip-row">
-            <div class="mo-chip">Custom System Prompt</div>
+            <div class="mo-chip">Save Prompt Button</div>
             <div class="mo-chip">Image Vision Analysis</div>
             <div class="mo-chip">Persistent SQLite</div>
             <div class="mo-chip">ZIP Export</div>
@@ -835,7 +840,7 @@ if prompt_data:
     # AI Response Execution
     with st.chat_message("assistant", avatar=AVATARS["assistant"]):
         try:
-            with st.spinner("Mo Dark AI يطبق البرومو ويحلل البيانات..."):
+            with st.spinner("Mo Dark AI يطبق البرومو المحفوظ ويجيبك..."):
                 client = get_client()
                 if not client:
                     raise RuntimeError("مفتاح API غير متوفر. يرجى إدخاله في الشريط الجانبي أو إعدادات Secrets.")
@@ -871,6 +876,6 @@ if prompt_data:
 
 html("""
 <div style="text-align:center; margin-top:36px; color:#55586b; font-size:11px;">
-    Mo Dark AI Ultimate Edition • Custom Promo, Database & Vision Enabled
+    Mo Dark AI Ultimate Edition • Save Prompt Button, Database & Vision Enabled
 </div>
 """)
