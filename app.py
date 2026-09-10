@@ -323,7 +323,7 @@ def clean_answer(answer):
 
 
 # =========================================================
-# PREMIUM CSS
+# PREMIUM CSS (MODERN SIDEBAR & UI)
 # =========================================================
 
 html("""
@@ -516,20 +516,76 @@ code { font-family: 'JetBrains Mono', monospace !important; }
 .file-name { color: #f2f4ff; font-size: 12.5px; font-weight: 700; word-break: break-all; }
 .file-meta { color: #797d93; font-size: 10px; margin-top: 2px; }
 
+/* =========================================================
+   NEW MODERN SIDEBAR STYLING
+========================================================= */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #070711, #030008) !important;
-    border-right: 1px solid rgba(0,243,255,0.09);
+    background: linear-gradient(180deg, #070711 0%, #030008 100%) !important;
+    border-right: 1px solid rgba(0, 243, 255, 0.12);
+    padding: 1rem 0.75rem;
 }
 
-.sidebar-title { font-size: 17px; font-weight: 900; margin-bottom: 3px; }
-.sidebar-sub { color: #777b91; font-size: 11px; margin-bottom: 20px; }
-
-.capability {
-    padding: 10px 12px; margin: 6px 0; border-radius: 12px;
-    border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.025);
-    color: #a5a8b9; font-size: 12px;
+.sidebar-header-card {
+    padding: 14px 16px;
+    background: linear-gradient(135deg, rgba(0, 243, 255, 0.08), rgba(112, 0, 255, 0.08));
+    border: 1px solid rgba(0, 243, 255, 0.2);
+    border-radius: 14px;
+    margin-bottom: 20px;
 }
-.capability b { color: #e9ecff; }
+.sidebar-title { font-size: 15px; font-weight: 800; color: #ffffff; margin-bottom: 2px; display: flex; align-items: center; gap: 8px; }
+.sidebar-sub { color: #8589a6; font-size: 11px; font-weight: 500; }
+
+.sidebar-section-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: #00f3ff;
+    text-transform: uppercase;
+    margin: 18px 0 8px 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Custom styling for sidebar buttons to look modern and sleek */
+[data-testid="stSidebar"] .stButton button {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    color: #e2e5f2;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 14px;
+    transition: all 0.3s ease;
+    text-align: right;
+    box-shadow: none;
+}
+
+[data-testid="stSidebar"] .stButton button:hover {
+    background: linear-gradient(135deg, rgba(0, 243, 255, 0.12), rgba(112, 0, 255, 0.12));
+    border-color: rgba(0, 243, 255, 0.4);
+    color: #ffffff;
+    box-shadow: 0 0 15px rgba(0, 243, 255, 0.15);
+    transform: translateY(-1px);
+}
+
+.capability-card {
+    padding: 10px 12px;
+    margin: 6px 0;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.02);
+    color: #9fa3b6;
+    font-size: 11.5px;
+    transition: all 0.2s ease;
+}
+.capability-card:hover {
+    border-color: rgba(0, 243, 255, 0.2);
+    background: rgba(0, 243, 255, 0.03);
+    color: #dcdffa;
+}
+.capability-card b { color: #f0f3ff; font-weight: 700; }
 
 [data-testid="stChatInput"] {
     background: #ffffff !important;
@@ -579,36 +635,37 @@ html("""
 
 
 # =========================================================
-# SIDEBAR (SETTINGS, SESSIONS, MODEL SELECTOR, EXPORT)
+# SIDEBAR (ULTRA MODERN DESIGN)
 # =========================================================
 
 with st.sidebar:
     html("""
-    <div class="sidebar-title">إدارة الجلسات والإعدادات</div>
-    <div class="sidebar-sub">Control Panel</div>
+    <div class="sidebar-header-card">
+        <div class="sidebar-title">⚙️ لوحة التحكم</div>
+        <div class="sidebar-sub">Mo Dark AI Control Center</div>
+    </div>
     """)
 
     # API Key Input Settings
-    api_key_input = st.text_input("مفتاح Hugging Face API (اختياري)", type="password", value=st.session_state.get("api_key", ""))
+    st.markdown('<div class="sidebar-section-label">🔑 المصادقة</div>', unsafe_allow_html=True)
+    api_key_input = st.text_input("مفتاح Hugging Face API", type="password", value=st.session_state.get("api_key", ""), placeholder="hf_xxxxxxxxxxxxxxxxxxx", label_visibility="collapsed")
     if api_key_input:
         st.session_state.api_key = api_key_input
 
-    st.divider()
-
     # Model Switcher
+    st.markdown('<div class="sidebar-section-label">🧠 نموذج الذكاء الاصطناعي</div>', unsafe_allow_html=True)
     available_models = [
         "Qwen/Qwen2.5-Coder-32B-Instruct",
         "Qwen/Qwen2.5-72B-Instruct",
         "meta-llama/Llama-3.3-70B-Instruct",
-        "Qwen/Qwen2-VL-72B-Instruct" # موديل ممتاز لتحليل الصور والبصريات
+        "Qwen/Qwen2-VL-72B-Instruct"
     ]
-    selected_model = st.selectbox("اختر الموديل الذكي", available_models, index=0)
+    selected_model = st.selectbox("الموديل الذكي", available_models, index=0, label_visibility="collapsed")
     st.session_state.selected_model = selected_model
 
-    st.divider()
-
     # Sessions Management
-    st.markdown("### 💬 الجلسات السابقة")
+    st.markdown('<div class="sidebar-section-label">💬 الجلسات المحفوظة</div>', unsafe_allow_html=True)
+    
     sessions = get_all_sessions()
     for s_id, s_title in sessions:
         if st.button(f"📁 {s_title or s_id}", key=f"sess_{s_id}", use_container_width=True):
@@ -616,7 +673,7 @@ with st.sidebar:
             st.session_state.messages = load_messages_from_db(s_id)
             st.rerun()
 
-    if st.button("➕ جلسة جديدة", use_container_width=True):
+    if st.button("✨ فتح جلسة جديدة", use_container_width=True):
         import uuid
         new_id = str(uuid.uuid4())[:8]
         create_session(new_id, f"محادثة {new_id}")
@@ -624,10 +681,10 @@ with st.sidebar:
         st.session_state.messages = load_messages_from_db(new_id)
         st.rerun()
 
-    st.divider()
-
-    # Export ZIP Feature
-    if st.button("📦 تصدير سجل المحادثة كملف ZIP", use_container_width=True):
+    # Project Actions & Export
+    st.markdown('<div class="sidebar-section-label">🛠️ أدوات المشروع</div>', unsafe_allow_html=True)
+    
+    if st.button("📦 تصدير سجل المحادثة ZIP", use_container_width=True):
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
             chat_text = "\n\n".join([f"[{m['role'].upper()}]: {m['content']}" for m in st.session_state.messages])
@@ -650,11 +707,12 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
-    st.divider()
+    # System Status Cards
+    st.markdown('<div class="sidebar-section-label">📊 حالة النظام</div>', unsafe_allow_html=True)
     html("""
-    <div class="capability">👁️ <b>Vision Active</b><br>قراءة وتحليل الصور بدقة فائقة</div>
-    <div class="capability">💾 <b>SQLite Database</b><br>حفظ تلقائي للرسائل والجلسات</div>
-    <div class="capability">📦 <b>ZIP Export</b><br>تصدير المشاريع بضغطة زر</div>
+    <div class="capability-card">👁️ <b>Vision Active</b><br>قراءة وتحليل الصور بدقة فائقة</div>
+    <div class="capability-card">💾 <b>SQLite Database</b><br>حفظ تلقائي للرسائل والجلسات</div>
+    <div class="capability-card">📦 <b>ZIP Export</b><br>تصدير المشاريع بضغطة زر</div>
     """)
 
 
@@ -793,7 +851,6 @@ if prompt_data:
             })
 
     if image_contents:
-        # Multi-modal content structure for vision models
         content_payload = [{"type": "text", "text": final_prompt}] + image_contents
         model_messages.append({"role": "user", "content": content_payload})
     else:
@@ -829,6 +886,7 @@ if prompt_data:
             
             err_msg = "❌ تعذر إتمام الطلب بسبب مشكلة في الاتصال أو المفتاح."
             st.session_state.messages.append({"role": "assistant", "content": err_msg})
+            save_message_data = [] # empty or default list
             save_message_to_db(st.session_state.session_id, "assistant", err_msg, [])
 
 
