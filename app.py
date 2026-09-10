@@ -89,15 +89,6 @@ You are a professional software engineering assistant.
 
 # =========================================================
 # HTML RENDER HELPER
-# ---------------------------------------------------------
-# Streamlit's markdown renderer treats any line that starts
-# with 4+ spaces of indentation as a fenced code block. Every
-# HTML string in this file used to be written with deep
-# Python indentation, so instead of rendering, the raw tags
-# were shown as literal text (this was the bug in the
-# screenshots). textwrap.dedent() + a leading-whitespace
-# strip on every line fixes that permanently, no matter how
-# the call site is indented.
 # =========================================================
 
 def html(markup: str) -> None:
@@ -205,12 +196,6 @@ def read_text_file(uploaded_file):
 
 
 def build_file_context(files):
-    """
-    Build text context for files that can safely be interpreted as text/code.
-    Binary files are described without pretending that the text-only model
-    can inspect them.
-    """
-
     if not files:
         return ""
 
@@ -252,8 +237,6 @@ def build_file_context(files):
 
 
 def render_uploaded_file(uploaded_file):
-    """Render uploaded files nicely inside the chat."""
-
     filename = uploaded_file.name
     mime_type = uploaded_file.type or ""
     size = uploaded_file.size or 0
@@ -641,19 +624,23 @@ code { font-family: 'JetBrains Mono', "Cascadia Code", Consolas, monospace !impo
 /* ===== CHAT INPUT ===== */
 
 [data-testid="stChatInput"] {
-    background: rgba(5,4,15,0.92) !important;
-    border: 1px solid rgba(0,243,255,0.18) !important;
+    background: #ffffff !important;
+    border: 2px solid #00f3ff !important;
     border-radius: 16px !important;
-    box-shadow: 0 0 30px rgba(0,243,255,0.06);
+    box-shadow: 0 0 20px rgba(0, 243, 255, 0.2);
 }
 
 [data-testid="stChatInput"] textarea {
-    color: #f5f7ff !important;
+    color: #0d0e15 !important;
     background: transparent !important;
     font-family: 'Cairo', sans-serif !important;
+    font-size: 15px !important;
+    font-weight: 600 !important;
 }
 
-[data-testid="stChatInput"] textarea::placeholder { color: #64677a !important; }
+[data-testid="stChatInput"] textarea::placeholder {
+    color: #6c757d !important;
+}
 
 hr { border-color: rgba(255,255,255,0.06) !important; }
 
@@ -905,7 +892,6 @@ if prompt_data:
 
     model_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    # Keep recent conversation context to prevent extremely long sessions.
     history = st.session_state.messages[:-1]
     recent_history = history[-12:]
 
