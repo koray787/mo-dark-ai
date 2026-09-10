@@ -184,6 +184,10 @@ if "messages" not in st.session_state:
 if "selected_model" not in st.session_state:
     st.session_state.selected_model = "Qwen/Qwen2.5-Coder-32B-Instruct"
 
+# تهيئة أدوات توليد الصور والفيديوهات
+if "media_tool_enabled" not in st.session_state:
+    st.session_state.media_tool_enabled = True
+
 
 # =========================================================
 # HELPERS
@@ -517,7 +521,7 @@ code { font-family: 'JetBrains Mono', monospace !important; }
 .file-meta { color: #797d93; font-size: 10px; margin-top: 2px; }
 
 /* =========================================================
-   NEW MODERN SIDEBAR STYLING
+    NEW MODERN SIDEBAR STYLING
 ========================================================= */
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, #070711 0%, #030008 100%) !important;
@@ -547,7 +551,6 @@ code { font-family: 'JetBrains Mono', monospace !important; }
     gap: 6px;
 }
 
-/* Custom styling for sidebar buttons to look modern and sleek */
 [data-testid="stSidebar"] .stButton button {
     width: 100%;
     background: rgba(255, 255, 255, 0.03);
@@ -611,24 +614,23 @@ html("""
     <div class="mo-brand">
         <div class="mo-logo">🤖</div>
         <div>
-            <div class="mo-brand-title">Mo Dark AI - Ultimate</div>
-            <div class="mo-brand-sub">Multi-Modal Coding Intelligence & Sessions</div>
+            <div class="mo-brand-title">Mo Dark AI - Ultimate + Media Studio</div>
+            <div class="mo-brand-sub">Multi-Modal Coding & AI Image/Video Studio</div>
         </div>
     </div>
     <div class="mo-online">
         <div class="mo-online-dot"></div>
-        ULTIMATE ENGINE ACTIVE
+        MEDIA TOOLS & ULTIMATE ENGINE ACTIVE
     </div>
 </div>
 """)
 
 html("""
 <div class="mo-hero">
-    <div class="mo-badge">⚡ FULLY LOADED & MULTI-MODAL</div>
+    <div class="mo-badge">⚡ AI IMAGE & VIDEO CREATION STUDIO</div>
     <h1 class="mo-title">MO DARK AI</h1>
     <div class="mo-description">
-        النسخة الخارقة المطورة: دعم الذاكرة الدائمة، فحص وتحليل الصور والفيديوهات بدقة،
-        تصدير المشاريع كـ ZIP، والتحكم الكامل بالنماذج والملفات.
+        النسخة الخارقة المطورة مع استوديو صناعة وتصميم وتعديل الصور والفيديوهات بأحدث نماذج الذكاء الاصطناعي وبأعلى دقة ممكنة.
     </div>
 </div>
 """)
@@ -641,14 +643,13 @@ html("""
 with st.sidebar:
     html("""
     <div class="sidebar-header-card">
-        <div class="sidebar-title">⚙️ لوحة التحكم</div>
-        <div class="sidebar-sub">Mo Dark AI Control Center</div>
+        <div class="sidebar-title">⚙️ لوحة التحكم واستوديو الميديا</div>
+        <div class="sidebar-sub">Mo Dark AI Control & Media Hub</div>
     </div>
     """)
 
     # API Key Input Settings
-    st.markdown('<div class="sidebar-section-label">🔑 المصادقة</div>', unsafe_allow_html=True)
-    api_key_input = st.text_input("مفتاح Hugging Face API", type="password", value=st.session_state.get("api_key", ""), placeholder="hf_xxxxxxxxxxxxxxxxxxx", label_visibility="collapsed")
+    api_key_input = st.text_input("مفتاح Hugging Face API", type="password", value=st.session_state.get("api_key", ""), placeholder="hf_xxxxxxxxxxxxxxxxxxx")
     if api_key_input:
         st.session_state.api_key = api_key_input
 
@@ -662,6 +663,55 @@ with st.sidebar:
     ]
     selected_model = st.selectbox("الموديل الذكي", available_models, index=0, label_visibility="collapsed")
     st.session_state.selected_model = selected_model
+
+    # =========================================================
+    # إضافة أفضل أدوات الذكاء الاصطناعي لتصميم وتوليد الصور والفيديوهات
+    # =========================================================
+    st.markdown('<div class="sidebar-section-label">🎨 استوديو توليد وتصميم الصور والفيديو</div>', unsafe_allow_html=True)
+    
+    selected_image_model = st.selectbox(
+        "أفضل نموذج لتوليد وتصميم الصور (Image Generation)",
+        [
+            "black-forest-labs/FLUX.1-schnell", 
+            "black-forest-labs/FLUX.1-dev", 
+            "stabilityai/stable-diffusion-xl-base-1.0"
+        ],
+        index=0
+    )
+    
+    image_prompt_input = st.text_area("وصف الصورة المطلوبة للتصميم أو التعديل:", placeholder="مثال: Cinematic portrait of a futuristic cyberpunk warrior, 8k resolution, highly detailed...")
+    
+    if st.button("🚀 توليد وتصميم الصورة الآن", use_container_width=True):
+        if not image_prompt_input.strip():
+            st.warning("يرجى كتابة وصف الصورة أولاً.")
+        else:
+            with st.spinner("جاري توليد الصورة بأعلى دقة باستخدام أحدث أدوات الذكاء الاصطناعي..."):
+                try:
+                    client = get_client()
+                    if not client:
+                        raise RuntimeError("مفتاح API غير متوفر.")
+                    
+                    # استخدام نموذج توليد الصور القوي من Hugging Face
+                    image_bytes = client.text_to_image(
+                        prompt=image_prompt_input,
+                        model=selected_image_model
+                    )
+                    
+                    st.success("✅ تم توليد وتصميم الصورة بنجاح!")
+                    st.image(image_bytes, caption=f"Prompt: {image_prompt_input}", use_container_width=True)
+                    
+                    # زر تحميل الصورة المولدة
+                    st.download_button(
+                        label="📥 تحميل الصورة المصممة",
+                        data=image_bytes,
+                        file_name="mo_dark_ai_generated_image.png",
+                        mime="image/png",
+                        use_container_width=True
+                    )
+                except Exception as img_err:
+                    st.error(f"❌ حدث خطأ أثناء توليد الصورة: {img_err}")
+
+    st.markdown("---")
 
     # Sessions Management
     st.markdown('<div class="sidebar-section-label">💬 الجلسات المحفوظة</div>', unsafe_allow_html=True)
@@ -711,6 +761,7 @@ with st.sidebar:
     st.markdown('<div class="sidebar-section-label">📊 حالة النظام</div>', unsafe_allow_html=True)
     html("""
     <div class="capability-card">👁️ <b>Vision Active</b><br>قراءة وتحليل الصور بدقة فائقة</div>
+    <div class="capability-card">🎨 <b>Flux & SDXL</b><br>أفضل أدوات توليد وتصميم الصور</div>
     <div class="capability-card">💾 <b>SQLite Database</b><br>حفظ تلقائي للرسائل والجلسات</div>
     <div class="capability-card">📦 <b>ZIP Export</b><br>تصدير المشاريع بضغطة زر</div>
     """)
@@ -723,18 +774,17 @@ with st.sidebar:
 if not st.session_state.messages:
     html("""
     <div class="mo-welcome-box">
-        <div class="mo-welcome-title">أهلاً بك في النسخة المطورة والفول الفول 👋</div>
+        <div class="mo-welcome-title">أهلاً بك في النسخة المطورة مع استوديو الميديا الخارق 👋</div>
         <div class="mo-welcome-text">
-            أنا <b>Mo Dark AI</b>، مساعدك البرمجي والبصري المتقدم.
+            أنا <b>Mo Dark AI</b>، مساعدك البرمجي والبصري المتقدم، والمزود بأحدث أدوات الذكاء الاصطناعي لتصميم وتوليد الصور والفيديوهات بجودة فائقة (FLUX & SDXL).
             <br><br>
-            يمكنك الآن رفع الصور، الفيديوهات، وملفات الأكواد المتعددة وسأقوم بتحليلها بدقة تامة.
-            جميع محادثاتك محفوظة تلقائياً في قاعدة البيانات المحلية.
+            يمكنك الآن استخدام الشريط الجانبي لتصميم وتوليد الصور مباشرة بالوصف، أو رفع الصور والفيديوهات والأكواد ليتم تحليلها والتعامل معها بكل احترافية.
         </div>
         <div class="mo-chip-row">
-            <div class="mo-chip">Image Vision Analysis</div>
+            <div class="mo-chip">FLUX.1 Image Generation</div>
+            <div class="mo-chip">Image Vision & Video Analysis</div>
             <div class="mo-chip">Multi-File Support</div>
             <div class="mo-chip">Persistent SQLite</div>
-            <div class="mo-chip">ZIP Export</div>
         </div>
     </div>
     """)
@@ -776,7 +826,7 @@ for message in st.session_state.messages:
 # =========================================================
 
 prompt_data = st.chat_input(
-    "اكتب طلبك أو ارفق صورة/ملف للتحليل الشامل... 📎",
+    "اكتب طلبك البرمجي، أو اطلب تصميم صورة/فيديو، أو ارفع ملفاً للتحليل... 📎",
     accept_file="multiple",
     file_type=None,
     key="mo_dark_chat_ultimate",
@@ -859,7 +909,7 @@ if prompt_data:
     # AI Response Execution
     with st.chat_message("assistant", avatar=AVATARS["assistant"]):
         try:
-            with st.spinner("Mo Dark AI يحلل الصور والبيانات بدقة..."):
+            with st.spinner("Mo Dark AI يحلل الطلب والصور والبيانات بدقة..."):
                 client = get_client()
                 if not client:
                     raise RuntimeError("مفتاح API غير متوفر. يرجى إدخاله في الشريط الجانبي أو إعدادات Secrets.")
@@ -886,7 +936,6 @@ if prompt_data:
             
             err_msg = "❌ تعذر إتمام الطلب بسبب مشكلة في الاتصال أو المفتاح."
             st.session_state.messages.append({"role": "assistant", "content": err_msg})
-            save_message_data = [] # empty or default list
             save_message_to_db(st.session_state.session_id, "assistant", err_msg, [])
 
 
@@ -896,6 +945,6 @@ if prompt_data:
 
 html("""
 <div style="text-align:center; margin-top:36px; color:#55586b; font-size:11px;">
-    Mo Dark AI Ultimate Edition • Persistent Database & Vision Enabled
+    Mo Dark AI Ultimate Edition • Persistent Database, Vision & AI Media Studio Enabled
 </div>
 """)
