@@ -1,14 +1,13 @@
 import os
 import io
 import re
-import json
 import uuid
-import base64
 import sqlite3
 import mimetypes
 import tempfile
 import ipaddress
 import socket
+import zipfile
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urlparse
@@ -23,7 +22,6 @@ from huggingface_hub import InferenceClient
 
 # ============================================================
 # MO DARK AI
-# ONE CHAT — AUTO UNDERSTANDS WHAT THE USER WANTS
 # ============================================================
 
 st.set_page_config(
@@ -35,42 +33,41 @@ st.set_page_config(
 
 
 # ============================================================
-# CONFIG
+# SETTINGS
 # ============================================================
 
 APP_NAME = "Mo Dark AI"
 
-# Main coding / general model
+# General / coding model
 TEXT_MODEL = "Qwen/Qwen2.5-Coder-32B-Instruct"
 
-# Vision model
+# Vision
 VISION_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
-
-# Fallback vision model
 VISION_FALLBACK = "Qwen/Qwen2.5-VL-72B-Instruct"
 
 # Image generation
 IMAGE_MODEL = "black-forest-labs/FLUX.1-schnell"
 
-# Text -> video
+# Text -> Video
 VIDEO_MODEL = "Wan-AI/Wan2.2-TI2V-5B"
 
-# Image -> video
+# Image -> Video
 IMAGE_VIDEO_MODEL = "Wan-AI/Wan2.2-I2V-A14B"
 
-# Speech recognition
+# Audio
 ASR_MODEL = "openai/whisper-large-v3"
 
-# Standard image size
+# Standard image output
 IMAGE_WIDTH = 1024
 IMAGE_HEIGHT = 1024
 
-# Remote URL maximum download
+# Remote URL limit
 MAX_REMOTE_BYTES = 25 * 1024 * 1024
 
-# Video analysis
+# Number of sampled video frames
 MAX_VIDEO_FRAMES = 6
 
+# Local database
 DB_FILE = "mo_dark_memory.db"
 
 
@@ -96,11 +93,11 @@ HF_TOKEN = get_hf_token()
 
 
 # ============================================================
-# CLIENT
+# HUGGING FACE CLIENT
 # ============================================================
 
 @st.cache_resource(show_spinner=False)
-def get_client(token):
+def create_client(token):
     if not token:
         return None
 
@@ -110,7 +107,7 @@ def get_client(token):
     )
 
 
-client = get_client(HF_TOKEN)
+client = create_client(HF_TOKEN)
 
 
 # ============================================================
@@ -118,12 +115,18 @@ client = get_client(HF_TOKEN)
 # ============================================================
 
 def db_connection():
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+    conn = sqlite3.connect(
+        DB_FILE,
+        check_same_thread=False,
+    )
+
     conn.row_factory = sqlite3.Row
+
     return conn
 
 
 def init_database():
+
     conn = db_connection()
 
     conn.execute(
@@ -154,8 +157,12 @@ def init_database():
 
 
 def create_session(title="محادثة جديدة"):
+
     session_id = str(uuid.uuid4())
-    now = datetime.now().isoformat(timespec="seconds")
+
+    now = datetime.now().isoformat(
+        timespec="seconds"
+    )
 
     conn = db_connection()
 
@@ -165,7 +172,12 @@ def create_session(title="محادثة جديدة"):
         (id, title, created_at, updated_at)
         VALUES (?, ?, ?, ?)
         """,
-        (session_id, title, now, now),
+        (
+            session_id,
+            title,
+            now,
+            now,
+        ),
     )
 
     conn.commit()
@@ -174,8 +186,16 @@ def create_session(title="محادثة جديدة"):
     return session_id
 
 
-def update_session_title(session_id, title):
-    title = title.strip()
+def update_session_title(
+    session_id,
+    title,
+):
+
+    title = (
+        title
+        .replace("\n", " ")
+        .strip()
+    )
 
     if not title:
         title = "محادثة جديدة"
@@ -192,7 +212,9 @@ def update_session_title(session_id, title):
         """,
         (
             title,
-            datetime.now().isoformat(timespec="seconds"),
+            datetime.now().isoformat(
+                timespec="seconds"
+            ),
             session_id,
         ),
     )
@@ -202,6 +224,7 @@ def update_session_title(session_id, title):
 
 
 def touch_session(session_id):
+
     conn = db_connection()
 
     conn.execute(
@@ -211,7 +234,9 @@ def touch_session(session_id):
         WHERE id = ?
         """,
         (
-            datetime.now().isoformat(timespec="seconds"),
+            datetime.now().isoformat(
+                timespec="seconds"
+            ),
             session_id,
         ),
     )
@@ -220,7 +245,12 @@ def touch_session(session_id):
     conn.close()
 
 
-def save_message(session_id, role, content):
+def save_message(
+    session_id,
+    role,
+    content,
+):
+
     conn = db_connection()
 
     conn.execute(
@@ -233,7 +263,9 @@ def save_message(session_id, role, content):
             session_id,
             role,
             content,
-            datetime.now().isoformat(timespec="seconds"),
+            datetime.now().isoformat(
+                timespec="seconds"
+            ),
         ),
     )
 
@@ -244,6 +276,7 @@ def save_message(session_id, role, content):
 
 
 def load_sessions():
+
     conn = db_connection()
 
     rows = conn.execute(
@@ -260,6 +293,7 @@ def load_sessions():
 
 
 def load_messages(session_id):
+
     conn = db_connection()
 
     rows = conn.execute(
@@ -290,127 +324,72 @@ if "session_id" not in st.session_state:
 if "sidebar_visible" not in st.session_state:
     st.session_state.sidebar_visible = True
 
-if "loaded_session" not in st.session_state:
-    st.session_state.loaded_session = st.session_state.session_id
-
 
 # ============================================================
-# HTML HELPER
+# HTML
 # ============================================================
 
-def safe_html(markup):
-    """
-    Use Streamlit's native HTML renderer first.
-    This prevents the raw <div>...</div> problem
-    that appeared in the previous version.
-    """
+def render_html(markup):
 
     try:
         st.html(markup)
     except Exception:
-        st.markdown(markup, unsafe_allow_html=True)
+        st.markdown(
+            markup,
+            unsafe_allow_html=True,
+        )
 
 
 # ============================================================
 # CSS
 # ============================================================
 
-safe_html(
+render_html(
     """
 <style>
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url(
+'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'
+);
 
 :root {
     --bg: #030509;
     --panel: #080c13;
-    --panel2: #0d121b;
-    --border: rgba(255,255,255,0.08);
     --cyan: #00eaff;
     --blue: #2878ff;
     --purple: #7c3cff;
-    --text: #f4f7fb;
-    --muted: #8993a4;
+    --text: #f5f7fb;
+    --muted: #7d8798;
 }
 
-html, body, [class*="css"] {
+html,
+body,
+[class*="css"] {
     font-family: Inter, sans-serif;
 }
 
 .stApp {
     background:
-        radial-gradient(circle at 50% -10%, rgba(0,234,255,0.08), transparent 32%),
-        radial-gradient(circle at 100% 100%, rgba(124,60,255,0.06), transparent 28%),
+        radial-gradient(
+            circle at 50% -10%,
+            rgba(0,234,255,0.10),
+            transparent 34%
+        ),
+        radial-gradient(
+            circle at 100% 100%,
+            rgba(124,60,255,0.07),
+            transparent 30%
+        ),
         #030509;
     color: var(--text);
 }
 
-/* Remove default top spacing */
 .block-container {
-    max-width: 1200px;
-    padding-top: 1rem;
+    max-width: 1180px;
+    padding-top: 0.7rem;
     padding-bottom: 7rem;
 }
 
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background:
-        linear-gradient(
-            180deg,
-            #05080e 0%,
-            #070b12 55%,
-            #05070b 100%
-        );
-    border-right: 1px solid rgba(255,255,255,0.07);
-}
-
-section[data-testid="stSidebar"] > div {
-    padding-top: 1rem;
-}
-
-/* Buttons */
-.stButton > button {
-    border-radius: 12px !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
-    background: rgba(255,255,255,0.035) !important;
-    color: #f3f7ff !important;
-    transition: 0.2s ease;
-}
-
-.stButton > button:hover {
-    border-color: rgba(0,234,255,0.45) !important;
-    background: rgba(0,234,255,0.07) !important;
-    transform: translateY(-1px);
-}
-
-/* Chat */
-[data-testid="stChatMessage"] {
-    background: transparent !important;
-    border: none !important;
-}
-
-[data-testid="stChatMessageContent"] {
-    background: rgba(255,255,255,0.025);
-    border: 1px solid rgba(255,255,255,0.055);
-    border-radius: 18px;
-    padding: 0.2rem 1rem;
-}
-
-/* Chat input */
-[data-testid="stChatInput"] {
-    border-radius: 18px !important;
-}
-
-[data-testid="stChatInput"] > div {
-    background: rgba(9,13,21,0.96) !important;
-    border: 1px solid rgba(0,234,255,0.18) !important;
-    border-radius: 18px !important;
-    box-shadow:
-        0 0 30px rgba(0,234,255,0.04),
-        0 15px 50px rgba(0,0,0,0.35);
-}
-
-/* Hide unnecessary Streamlit decoration */
 #MainMenu {
     visibility: hidden;
 }
@@ -423,14 +402,74 @@ header[data-testid="stHeader"] {
     background: transparent;
 }
 
-/* File uploader */
+section[data-testid="stSidebar"] {
+    background:
+        linear-gradient(
+            180deg,
+            #05080e,
+            #070b12 55%,
+            #05070b
+        );
+    border-right:
+        1px solid rgba(255,255,255,0.07);
+}
+
+section[data-testid="stSidebar"] > div {
+    padding-top: 1rem;
+}
+
+.stButton > button {
+    border-radius: 12px !important;
+    border:
+        1px solid rgba(255,255,255,0.08) !important;
+    background:
+        rgba(255,255,255,0.035) !important;
+    color: #f4f7fb !important;
+    transition: all 0.2s ease;
+}
+
+.stButton > button:hover {
+    border-color:
+        rgba(0,234,255,0.45) !important;
+    background:
+        rgba(0,234,255,0.07) !important;
+}
+
+[data-testid="stChatMessage"] {
+    background: transparent !important;
+    border: none !important;
+}
+
+[data-testid="stChatMessageContent"] {
+    background:
+        rgba(255,255,255,0.025);
+    border:
+        1px solid rgba(255,255,255,0.055);
+    border-radius: 18px;
+}
+
+[data-testid="stChatInput"] {
+    border-radius: 18px !important;
+}
+
+[data-testid="stChatInput"] > div {
+    background:
+        rgba(7,11,18,0.98) !important;
+    border:
+        1px solid rgba(0,234,255,0.20) !important;
+    border-radius: 18px !important;
+    box-shadow:
+        0 0 35px rgba(0,234,255,0.04),
+        0 15px 60px rgba(0,0,0,0.40);
+}
+
 [data-testid="stFileUploader"] {
     background: transparent;
 }
 
-/* Divider */
 hr {
-    border-color: rgba(255,255,255,0.06) !important;
+    border-color:
+        rgba(255,255,255,0.06) !important;
 }
 
 </style>
@@ -439,62 +478,83 @@ hr {
 
 
 # ============================================================
-# TOP NAV
+# TOP BAR
 # ============================================================
 
-col1, col2 = st.columns([1, 12])
+top1, top2 = st.columns(
+    [1, 12]
+)
 
-with col1:
+with top1:
+
     if st.button(
         "☰",
-        key="toggle_sidebar",
-        help="إظهار / إخفاء القائمة الجانبية",
+        key="sidebar_toggle",
+        help="إظهار / إخفاء القائمة",
     ):
-        st.session_state.sidebar_visible = not st.session_state.sidebar_visible
+
+        st.session_state.sidebar_visible = (
+            not st.session_state.sidebar_visible
+        )
+
         st.rerun()
 
-with col2:
-    safe_html(
+
+with top2:
+
+    render_html(
         """
+<div style="
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:6px 0 15px 0;
+">
+
+    <div style="
+        width:40px;
+        height:40px;
+        border-radius:13px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        background:
+            linear-gradient(
+                135deg,
+                #00eaff,
+                #2878ff,
+                #7c3cff
+            );
+        box-shadow:
+            0 0 30px rgba(0,234,255,.25);
+        font-size:21px;
+    ">
+        ⚡
+    </div>
+
+    <div>
+
         <div style="
-            display:flex;
-            align-items:center;
-            gap:12px;
-            padding:8px 0 18px 0;
+            font-size:19px;
+            font-weight:800;
+            color:#f6f8fb;
         ">
-            <div style="
-                width:38px;
-                height:38px;
-                border-radius:12px;
-                display:flex;
-                align-items:center;
-                justify-content:center;
-                background:
-                    linear-gradient(135deg,#00eaff,#2878ff,#7c3cff);
-                box-shadow:
-                    0 0 28px rgba(0,234,255,.25);
-                font-size:20px;
-            ">⚡</div>
-
-            <div>
-                <div style="
-                    font-size:19px;
-                    font-weight:800;
-                    letter-spacing:-.5px;
-                ">
-                    Mo Dark AI
-                </div>
-
-                <div style="
-                    font-size:11px;
-                    color:#778296;
-                    margin-top:2px;
-                ">
-                    MULTIMODAL INTELLIGENCE ENGINE
-                </div>
-            </div>
+            Mo Dark AI
         </div>
-        """
+
+        <div style="
+            font-size:10px;
+            color:#6f7a8c;
+            letter-spacing:1px;
+            margin-top:2px;
+        ">
+            MULTIMODAL INTELLIGENCE
+        </div>
+
+    </div>
+
+</div>
+"""
     )
 
 
@@ -506,233 +566,121 @@ if st.session_state.sidebar_visible:
 
     with st.sidebar:
 
-        safe_html(
+        render_html(
             """
-            <div style="
-                padding:8px 4px 18px 4px;
-            ">
-                <div style="
-                    font-size:21px;
-                    font-weight:800;
-                    color:#fff;
-                ">
-                    Mo Dark
-                </div>
+<div style="
+    padding:6px 4px 17px 4px;
+">
 
-                <div style="
-                    font-size:11px;
-                    color:#697589;
-                    margin-top:3px;
-                ">
-                    AI WORKSPACE
-                </div>
-            </div>
-            """
+    <div style="
+        font-size:22px;
+        font-weight:800;
+        color:#fff;
+    ">
+        Mo Dark
+    </div>
+
+    <div style="
+        font-size:10px;
+        color:#667185;
+        letter-spacing:1px;
+        margin-top:4px;
+    ">
+        AI WORKSPACE
+    </div>
+
+</div>
+"""
         )
 
         if st.button(
             "＋  محادثة جديدة",
             use_container_width=True,
-            key="new_chat",
+            key="create_new_chat",
         ):
-            new_id = create_session()
-            st.session_state.session_id = new_id
-            st.session_state.loaded_session = new_id
+
+            new_session = create_session()
+
+            st.session_state.session_id = (
+                new_session
+            )
+
             st.rerun()
 
         st.markdown("---")
 
         st.markdown(
-            "<div style='color:#8993a4;font-size:12px;"
-            "font-weight:700;margin-bottom:10px;'>"
-            "المحادثات السابقة"
-            "</div>",
+            """
+<div style="
+    color:#7e899b;
+    font-size:11px;
+    font-weight:700;
+    margin-bottom:10px;
+">
+المحادثات السابقة
+</div>
+""",
             unsafe_allow_html=True,
         )
 
         sessions = load_sessions()
 
         if not sessions:
-            st.caption("لا توجد محادثات بعد.")
+
+            st.caption(
+                "لا توجد محادثات."
+            )
 
         for session in sessions:
 
+            session_id = session["id"]
             title = session["title"]
 
             if not title:
                 title = "محادثة جديدة"
 
-            is_current = (
-                session["id"] == st.session_state.session_id
+            current = (
+                session_id
+                == st.session_state.session_id
             )
 
+            icon = "●" if current else "○"
+
             label = (
-                "●  " if is_current else "○  "
-            ) + title[:42]
+                f"{icon}  "
+                f"{title[:42]}"
+            )
 
             if st.button(
                 label,
-                key=f"session_{session['id']}",
+                key=f"open_{session_id}",
                 use_container_width=True,
             ):
-                st.session_state.session_id = session["id"]
-                st.session_state.loaded_session = session["id"]
+
+                st.session_state.session_id = (
+                    session_id
+                )
+
                 st.rerun()
 
         st.markdown("---")
 
-        safe_html(
+        render_html(
             """
-            <div style="
-                color:#5e697b;
-                font-size:10px;
-                line-height:1.7;
-            ">
-                MO DARK AI<br>
-                ONE CHAT • MANY CAPABILITIES
-            </div>
-            """
+<div style="
+    color:#4e596b;
+    font-size:9px;
+    line-height:1.8;
+">
+    MO DARK AI<br>
+    ONE CHAT • EVERYTHING
+</div>
+"""
         )
 
 
 # ============================================================
-# LOAD CURRENT MESSAGES
-# ============================================================
-
-messages = load_messages(
-    st.session_state.session_id
-)
-
-
-# ============================================================
-# WELCOME SCREEN
-# ============================================================
-
-if len(messages) == 0:
-
-    safe_html(
-        """
-        <div style="
-            margin:35px auto 35px auto;
-            max-width:850px;
-            text-align:center;
-            padding:45px 25px;
-        ">
-
-            <div style="
-                width:72px;
-                height:72px;
-                margin:auto;
-                border-radius:22px;
-                display:flex;
-                align-items:center;
-                justify-content:center;
-                font-size:35px;
-                background:
-                    radial-gradient(
-                        circle at 30% 20%,
-                        #00eaff,
-                        #2878ff 45%,
-                        #32126f
-                    );
-                box-shadow:
-                    0 0 50px rgba(0,234,255,.18);
-            ">
-                ⚡
-            </div>
-
-            <div style="
-                margin-top:25px;
-                font-size:42px;
-                line-height:1.1;
-                font-weight:800;
-                letter-spacing:-2px;
-            ">
-                What can I build
-                <span style="
-                    color:#00eaff;
-                ">for you?</span>
-            </div>
-
-            <div style="
-                margin:18px auto 0 auto;
-                max-width:650px;
-                color:#7e899b;
-                font-size:14px;
-                line-height:1.8;
-            ">
-                اكتب طلبك فقط.
-                Mo Dark AI يحدد تلقائياً إذا كان المطلوب
-                برمجة، تحليل صورة، تحليل ملف، إنشاء صورة،
-                إنشاء فيديو، قراءة رابط أو محادثة عادية.
-            </div>
-
-            <div style="
-                display:flex;
-                justify-content:center;
-                flex-wrap:wrap;
-                gap:8px;
-                margin-top:25px;
-            ">
-
-                <span style="
-                    padding:8px 12px;
-                    border:1px solid rgba(0,234,255,.13);
-                    border-radius:999px;
-                    color:#8993a4;
-                    font-size:11px;
-                ">
-                    💻 Code
-                </span>
-
-                <span style="
-                    padding:8px 12px;
-                    border:1px solid rgba(0,234,255,.13);
-                    border-radius:999px;
-                    color:#8993a4;
-                    font-size:11px;
-                ">
-                    🖼️ Image
-                </span>
-
-                <span style="
-                    padding:8px 12px;
-                    border:1px solid rgba(0,234,255,.13);
-                    border-radius:999px;
-                    color:#8993a4;
-                    font-size:11px;
-                ">
-                    🎬 Video
-                </span>
-
-                <span style="
-                    padding:8px 12px;
-                    border:1px solid rgba(0,234,255,.13);
-                    border-radius:999px;
-                    color:#8993a4;
-                    font-size:11px;
-                ">
-                    📁 Files
-                </span>
-
-                <span style="
-                    padding:8px 12px;
-                    border:1px solid rgba(0,234,255,.13);
-                    border-radius:999px;
-                    color:#8993a4;
-                    font-size:11px;
-                ">
-                    🌐 URLs
-                </span>
-
-            </div>
-        </div>
-        """
-    )
-
-
-# ============================================================
-# FILE HELPERS
+# FILE TYPES
 # ============================================================
 
 IMAGE_EXTENSIONS = {
@@ -796,108 +744,159 @@ TEXT_EXTENSIONS = {
 }
 
 
-def get_extension(filename):
+def extension_of(filename):
     return Path(filename).suffix.lower()
 
 
-def file_kind(uploaded_file):
+def detect_file_type(uploaded_file):
 
-    name = uploaded_file.name.lower()
-    ext = get_extension(name)
+    filename = uploaded_file.name.lower()
 
-    mime = uploaded_file.type or ""
+    extension = extension_of(
+        filename
+    )
 
-    if mime.startswith("image/") or ext in IMAGE_EXTENSIONS:
+    mime = (
+        uploaded_file.type
+        or ""
+    ).lower()
+
+    if (
+        mime.startswith("image/")
+        or extension in IMAGE_EXTENSIONS
+    ):
         return "image"
 
-    if mime.startswith("video/") or ext in VIDEO_EXTENSIONS:
+    if (
+        mime.startswith("video/")
+        or extension in VIDEO_EXTENSIONS
+    ):
         return "video"
 
-    if mime.startswith("audio/") or ext in AUDIO_EXTENSIONS:
+    if (
+        mime.startswith("audio/")
+        or extension in AUDIO_EXTENSIONS
+    ):
         return "audio"
 
-    if ext == ".pdf" or mime == "application/pdf":
+    if (
+        extension == ".pdf"
+        or mime == "application/pdf"
+    ):
         return "pdf"
 
-    if ext == ".docx":
+    if extension == ".docx":
         return "docx"
 
-    if ext in {".xlsx", ".xlsm", ".xls"}:
+    if extension in {
+        ".xlsx",
+        ".xlsm",
+        ".xls",
+    }:
         return "excel"
 
-    if ext == ".csv":
+    if extension == ".csv":
         return "csv"
 
-    if ext in TEXT_EXTENSIONS:
+    if extension in TEXT_EXTENSIONS:
         return "text"
 
-    if ext == ".zip":
+    if extension == ".zip":
         return "zip"
 
     return "binary"
 
 
 # ============================================================
-# TEXT EXTRACTION
+# TEXT / DOCUMENT EXTRACTION
 # ============================================================
 
-def decode_text(data):
-    for encoding in ("utf-8", "utf-8-sig", "cp1256", "latin-1"):
+def decode_bytes(data):
+
+    for encoding in (
+        "utf-8",
+        "utf-8-sig",
+        "cp1256",
+        "latin-1",
+    ):
+
         try:
-            return data.decode(encoding)
+            return data.decode(
+                encoding
+            )
         except Exception:
-            continue
+            pass
 
-    return data.decode("utf-8", errors="replace")
+    return data.decode(
+        "utf-8",
+        errors="replace",
+    )
 
 
-def extract_pdf_text(data):
+def extract_pdf(data):
+
     try:
+
         import fitz
 
-        doc = fitz.open(
+        document = fitz.open(
             stream=data,
             filetype="pdf",
         )
 
-        parts = []
+        pages = []
 
-        for page in doc:
+        for page in document:
+
             text = page.get_text()
 
             if text:
-                parts.append(text)
+                pages.append(text)
 
-        doc.close()
+        document.close()
 
-        return "\n\n".join(parts)
+        return "\n\n".join(
+            pages
+        )
 
     except Exception as e:
-        return f"[PDF extraction failed: {e}]"
+
+        return (
+            "[PDF extraction error] "
+            + str(e)
+        )
 
 
-def extract_docx_text(data):
+def extract_docx(data):
 
     try:
+
         from docx import Document
 
-        doc = Document(
+        document = Document(
             io.BytesIO(data)
         )
 
-        paragraphs = [
-            p.text
-            for p in doc.paragraphs
-            if p.text.strip()
-        ]
+        result = []
 
-        return "\n".join(paragraphs)
+        for paragraph in document.paragraphs:
+
+            text = paragraph.text.strip()
+
+            if text:
+                result.append(text)
+
+        return "\n".join(result)
 
     except Exception as e:
-        return f"[DOCX extraction failed: {e}]"
+
+        return (
+            "[DOCX extraction error] "
+            + str(e)
+        )
 
 
-def extract_excel_text(data):
+def extract_excel(data):
 
     try:
 
@@ -905,45 +904,57 @@ def extract_excel_text(data):
             io.BytesIO(data)
         )
 
-        output = []
+        result = []
 
         for sheet in workbook.sheet_names:
 
-            df = pd.read_excel(
+            dataframe = pd.read_excel(
                 workbook,
                 sheet_name=sheet,
             )
 
-            output.append(
-                f"### SHEET: {sheet}\n"
+            result.append(
+                f"### SHEET: {sheet}"
             )
 
-            output.append(
-                df.head(200).to_csv(
+            result.append(
+                dataframe.head(
+                    300
+                ).to_csv(
                     index=False
                 )
             )
 
-        return "\n".join(output)
+        return "\n".join(result)
 
     except Exception as e:
-        return f"[Excel extraction failed: {e}]"
+
+        return (
+            "[Excel extraction error] "
+            + str(e)
+        )
 
 
-def extract_csv_text(data):
+def extract_csv(data):
 
     try:
 
-        df = pd.read_csv(
+        dataframe = pd.read_csv(
             io.BytesIO(data)
         )
 
-        return df.head(500).to_csv(
+        return dataframe.head(
+            1000
+        ).to_csv(
             index=False
         )
 
     except Exception as e:
-        return f"[CSV extraction failed: {e}]"
+
+        return (
+            "[CSV extraction error] "
+            + str(e)
+        )
 
 
 def inspect_zip(data):
@@ -952,51 +963,63 @@ def inspect_zip(data):
 
         with zipfile.ZipFile(
             io.BytesIO(data)
-        ) as z:
+        ) as archive:
 
-            names = z.namelist()
+            names = archive.namelist()
 
             return (
-                "ZIP ARCHIVE CONTENTS:\n"
+                "ZIP CONTENTS:\n"
                 + "\n".join(
-                    names[:1000]
+                    names[:1500]
                 )
             )
 
     except Exception as e:
-        return f"[ZIP inspection failed: {e}]"
+
+        return (
+            "[ZIP inspection error] "
+            + str(e)
+        )
 
 
 # ============================================================
-# IMAGE HELPERS
+# IMAGE
 # ============================================================
 
-def bytes_to_data_url(data, mime="image/jpeg"):
+def data_url(
+    data,
+    mime="image/jpeg",
+):
 
     encoded = base64.b64encode(
         data
     ).decode("utf-8")
 
-    return f"data:{mime};base64,{encoded}"
+    return (
+        f"data:{mime};base64,"
+        f"{encoded}"
+    )
 
 
-def image_to_png_bytes(image):
+def image_to_bytes(image):
 
-    output = io.BytesIO()
+    buffer = io.BytesIO()
 
     image.save(
-        output,
+        buffer,
         format="PNG",
     )
 
-    return output.getvalue()
+    return buffer.getvalue()
 
 
 # ============================================================
-# VIDEO FRAME EXTRACTION
+# VIDEO
 # ============================================================
 
-def extract_video_frames(video_bytes):
+def extract_video_frames(
+    video_bytes,
+):
 
     try:
 
@@ -1004,58 +1027,74 @@ def extract_video_frames(video_bytes):
         import numpy as np
 
     except Exception as e:
-        return [], f"OpenCV unavailable: {e}"
 
-    temp_path = None
-    frames = []
+        return [], str(e)
+
+    temporary_file = None
 
     try:
 
         with tempfile.NamedTemporaryFile(
             delete=False,
             suffix=".mp4",
-        ) as temp:
+        ) as file:
 
-            temp.write(video_bytes)
-            temp_path = temp.name
+            file.write(
+                video_bytes
+            )
 
-        cap = cv2.VideoCapture(
-            temp_path
+            temporary_file = (
+                file.name
+            )
+
+        capture = cv2.VideoCapture(
+            temporary_file
         )
 
-        if not cap.isOpened():
-            return [], "Could not open video."
+        if not capture.isOpened():
+
+            return [], (
+                "Could not open video."
+            )
 
         total_frames = int(
-            cap.get(
+            capture.get(
                 cv2.CAP_PROP_FRAME_COUNT
             )
         )
 
         if total_frames <= 0:
-            cap.release()
-            return [], "Video contains no readable frames."
 
-        count = min(
+            capture.release()
+
+            return [], (
+                "No readable frames."
+            )
+
+        number = min(
             MAX_VIDEO_FRAMES,
             total_frames,
         )
 
-        indices = np.linspace(
+        positions = np.linspace(
             0,
             total_frames - 1,
-            count,
+            number,
             dtype=int,
         )
 
-        for index in indices:
+        frames = []
 
-            cap.set(
+        for position in positions:
+
+            capture.set(
                 cv2.CAP_PROP_POS_FRAMES,
-                int(index),
+                int(position),
             )
 
-            success, frame = cap.read()
+            success, frame = (
+                capture.read()
+            )
 
             if not success:
                 continue
@@ -1069,71 +1108,88 @@ def extract_video_frames(video_bytes):
                 frame
             )
 
-            # Resize large frames
             image.thumbnail(
                 (1280, 1280)
             )
 
-            frame_bytes = image_to_png_bytes(
-                image
-            )
-
             frames.append(
-                frame_bytes
+                image_to_bytes(
+                    image
+                )
             )
 
-        cap.release()
+        capture.release()
 
         return frames, None
 
     except Exception as e:
+
         return [], str(e)
 
     finally:
 
-        if temp_path:
+        if temporary_file:
 
             try:
-                os.remove(temp_path)
+                os.remove(
+                    temporary_file
+                )
             except Exception:
                 pass
 
 
 # ============================================================
-# AUDIO TRANSCRIPTION
+# AUDIO
 # ============================================================
 
-def transcribe_audio(audio_bytes):
+def transcribe_audio(
+    audio_bytes,
+):
 
     if not client:
-        return "[HF_TOKEN is missing.]"
+
+        return (
+            "[HF_TOKEN is missing.]"
+        )
 
     try:
 
-        result = client.automatic_speech_recognition(
-            audio_bytes,
-            model=ASR_MODEL,
+        result = (
+            client.automatic_speech_recognition(
+                audio_bytes,
+                model=ASR_MODEL,
+            )
         )
 
-        if hasattr(result, "text"):
+        if hasattr(
+            result,
+            "text",
+        ):
+
             return result.text
 
         return str(result)
 
     except Exception as e:
-        return f"[Audio transcription failed: {e}]"
+
+        return (
+            "[Audio transcription error] "
+            + str(e)
+        )
 
 
 # ============================================================
 # URL SECURITY
 # ============================================================
 
-def is_public_hostname(hostname):
+def is_public_host(
+    hostname,
+):
 
     if not hostname:
         return False
 
-    hostname = hostname.lower().strip()
+    hostname = hostname.lower()
 
     if hostname in {
         "localhost",
@@ -1148,12 +1204,14 @@ def is_public_hostname(hostname):
             None,
         )
 
-        for item in addresses:
+        for address in addresses:
 
-            ip = item[4][0]
+            ip = address[4][0]
 
-            parsed = ipaddress.ip_address(
-                ip
+            parsed = (
+                ipaddress.ip_address(
+                    ip
+                )
             )
 
             if (
@@ -1163,11 +1221,13 @@ def is_public_hostname(hostname):
                 or parsed.is_reserved
                 or parsed.is_multicast
             ):
+
                 return False
 
         return True
 
     except Exception:
+
         return False
 
 
@@ -1175,7 +1235,9 @@ def safe_url(url):
 
     try:
 
-        parsed = urlparse(url)
+        parsed = urlparse(
+            url
+        )
 
         if parsed.scheme not in {
             "http",
@@ -1186,36 +1248,52 @@ def safe_url(url):
         if not parsed.hostname:
             return False
 
-        return is_public_hostname(
+        return is_public_host(
             parsed.hostname
         )
 
     except Exception:
+
         return False
 
 
-def extract_urls(text):
+def find_urls(text):
 
     if not text:
         return []
 
-    return re.findall(
+    urls = re.findall(
         r"https?://[^\s<>\"]+",
         text,
         flags=re.IGNORECASE,
     )
 
+    cleaned = []
+
+    for url in urls:
+
+        url = url.rstrip(
+            ".,!?؛،)"
+        )
+
+        if url not in cleaned:
+            cleaned.append(url)
+
+    return cleaned
+
 
 # ============================================================
-# URL INSPECTION
+# URL FETCHER
 # ============================================================
 
 def fetch_url(url):
 
     if not safe_url(url):
+
         return {
             "kind": "error",
-            "text": "This URL is blocked or invalid.",
+            "text":
+            "الرابط غير صالح أو محظور لأسباب أمنية.",
         }
 
     try:
@@ -1224,23 +1302,26 @@ def fetch_url(url):
             url,
             timeout=20,
             stream=True,
+            allow_redirects=True,
             headers={
                 "User-Agent":
-                "Mozilla/5.0 Mo-Dark-AI"
+                "Mozilla/5.0 Mo-Dark-AI",
             },
-            allow_redirects=True,
         )
 
         response.raise_for_status()
 
         content_type = (
-            response.headers
-            .get("content-type", "")
-            .lower()
+            response.headers.get(
+                "content-type",
+                "",
+            ).lower()
         )
 
-        content_length = response.headers.get(
-            "content-length"
+        content_length = (
+            response.headers.get(
+                "content-length"
+            )
         )
 
         if content_length:
@@ -1251,10 +1332,11 @@ def fetch_url(url):
                     int(content_length)
                     > MAX_REMOTE_BYTES
                 ):
+
                     return {
                         "kind": "error",
                         "text":
-                        "Remote file is too large.",
+                        "الملف الموجود بالرابط كبير جداً.",
                     }
 
             except Exception:
@@ -1273,17 +1355,22 @@ def fetch_url(url):
             total += len(chunk)
 
             if total > MAX_REMOTE_BYTES:
+
                 return {
                     "kind": "error",
                     "text":
-                    "Remote content exceeded the safe size limit.",
+                    "تم تجاوز الحد الآمن لحجم الرابط.",
                 }
 
-            chunks.append(chunk)
+            chunks.append(
+                chunk
+            )
 
-        data = b"".join(chunks)
+        data = b"".join(
+            chunks
+        )
 
-        # Image URL
+        # IMAGE
         if content_type.startswith(
             "image/"
         ):
@@ -1296,7 +1383,7 @@ def fetch_url(url):
                 f"Image URL: {url}",
             }
 
-        # Video URL
+        # VIDEO
         if content_type.startswith(
             "video/"
         ):
@@ -1309,10 +1396,10 @@ def fetch_url(url):
                 f"Video URL: {url}",
             }
 
-        # Text / HTML
+        # HTML
         if (
-            "text/html" in content_type
-            or "text/plain" in content_type
+            "text/html"
+            in content_type
         ):
 
             encoding = (
@@ -1320,67 +1407,89 @@ def fetch_url(url):
                 or "utf-8"
             )
 
-            text = data.decode(
+            html = data.decode(
                 encoding,
                 errors="replace",
             )
 
-            if "text/html" in content_type:
+            soup = BeautifulSoup(
+                html,
+                "html.parser",
+            )
 
-                soup = BeautifulSoup(
-                    text,
-                    "html.parser",
-                )
+            for tag in soup(
+                [
+                    "script",
+                    "style",
+                    "noscript",
+                    "svg",
+                ]
+            ):
 
-                for tag in soup(
-                    [
-                        "script",
-                        "style",
-                        "noscript",
-                        "svg",
-                    ]
-                ):
-                    tag.decompose()
+                tag.decompose()
+
+            title = ""
+
+            if soup.title:
 
                 title = (
                     soup.title.get_text(
                         " ",
                         strip=True,
                     )
-                    if soup.title
-                    else ""
                 )
 
-                body = soup.get_text(
-                    "\n",
-                    strip=True,
-                )
+            body = soup.get_text(
+                "\n",
+                strip=True,
+            )
 
-                body = body[:50000]
+            body = body[:60000]
 
-                return {
-                    "kind": "html",
-                    "title": title,
-                    "text":
-                    f"URL: {url}\n"
-                    f"TITLE: {title}\n\n"
-                    f"PAGE CONTENT:\n{body}",
-                }
+            return {
+                "kind": "html",
+                "text":
+                f"""
+URL:
+{url}
+
+PAGE TITLE:
+{title}
+
+PAGE CONTENT:
+{body}
+""",
+            }
+
+        # TEXT
+        if content_type.startswith(
+            "text/"
+        ):
+
+            text = data.decode(
+                "utf-8",
+                errors="replace",
+            )
 
             return {
                 "kind": "text",
                 "text":
-                text[:50000],
+                text[:60000],
             }
 
         return {
             "kind": "binary",
-            "mime": content_type,
-            "data": data,
             "text":
-            f"Downloaded URL: {url}\n"
-            f"Content-Type: {content_type}\n"
-            f"Size: {len(data)} bytes",
+            f"""
+URL:
+{url}
+
+CONTENT TYPE:
+{content_type}
+
+SIZE:
+{len(data)} bytes
+""",
         }
 
     except Exception as e:
@@ -1388,60 +1497,55 @@ def fetch_url(url):
         return {
             "kind": "error",
             "text":
-            f"Could not read URL:\n{e}",
+            f"تعذر قراءة الرابط:\n{e}",
         }
 
 
 # ============================================================
-# FILE -> AI CONTEXT
+# PROCESS FILES
 # ============================================================
 
-def process_files(uploaded_files):
+def process_files(
+    uploaded_files,
+):
 
     text_context = []
     image_parts = []
-    preview_items = []
 
-    for uploaded_file in uploaded_files:
+    for file in uploaded_files:
 
         try:
-            data = uploaded_file.getvalue()
+
+            data = file.getvalue()
 
         except Exception:
+
             continue
 
-        name = uploaded_file.name
+        filename = file.name
+
         mime = (
-            uploaded_file.type
-            or mimetypes.guess_type(name)[0]
+            file.type
+            or mimetypes.guess_type(
+                filename
+            )[0]
             or "application/octet-stream"
         )
 
-        kind = file_kind(
-            uploaded_file
+        kind = detect_file_type(
+            file
         )
 
-        preview_items.append(
-            {
-                "name": name,
-                "kind": kind,
-                "mime": mime,
-                "size": len(data),
-            }
-        )
-
-        # --------------------------
         # IMAGE
-        # --------------------------
-
         if kind == "image":
 
             image_parts.append(
                 {
-                    "type": "image_url",
+                    "type":
+                    "image_url",
                     "image_url": {
                         "url":
-                        bytes_to_data_url(
+                        data_url(
                             data,
                             mime,
                         )
@@ -1451,10 +1555,7 @@ def process_files(uploaded_files):
 
             continue
 
-        # --------------------------
         # VIDEO
-        # --------------------------
-
         if kind == "video":
 
             frames, error = (
@@ -1466,16 +1567,13 @@ def process_files(uploaded_files):
             text_context.append(
                 f"""
 VIDEO FILE:
-{name}
-
-MIME:
-{mime}
+{filename}
 
 SIZE:
 {len(data)} bytes
 
-The video was sampled into
-{len(frames)} visual frames.
+Sampled visual frames:
+{len(frames)}
 """
             )
 
@@ -1483,10 +1581,11 @@ The video was sampled into
 
                 image_parts.append(
                     {
-                        "type": "image_url",
+                        "type":
+                        "image_url",
                         "image_url": {
                             "url":
-                            bytes_to_data_url(
+                            data_url(
                                 frame,
                                 "image/png",
                             )
@@ -1495,16 +1594,15 @@ The video was sampled into
                 )
 
             if error:
+
                 text_context.append(
-                    f"VIDEO PROCESSING NOTE: {error}"
+                    "Video processing note: "
+                    + error
                 )
 
             continue
 
-        # --------------------------
         # AUDIO
-        # --------------------------
-
         if kind == "audio":
 
             transcript = (
@@ -1516,7 +1614,7 @@ The video was sampled into
             text_context.append(
                 f"""
 AUDIO FILE:
-{name}
+{filename}
 
 TRANSCRIPT:
 {transcript}
@@ -1525,116 +1623,102 @@ TRANSCRIPT:
 
             continue
 
-        # --------------------------
         # PDF
-        # --------------------------
-
         if kind == "pdf":
 
-            text = extract_pdf_text(
+            text = extract_pdf(
                 data
             )
 
             text_context.append(
                 f"""
-PDF FILE: {name}
+PDF FILE:
+{filename}
 
 CONTENT:
-{text[:60000]}
+{text[:70000]}
 """
             )
 
             continue
 
-        # --------------------------
         # DOCX
-        # --------------------------
-
         if kind == "docx":
 
-            text = extract_docx_text(
+            text = extract_docx(
                 data
             )
 
             text_context.append(
                 f"""
-WORD FILE: {name}
+DOCX FILE:
+{filename}
 
 CONTENT:
-{text[:60000]}
+{text[:70000]}
 """
             )
 
             continue
 
-        # --------------------------
         # EXCEL
-        # --------------------------
-
         if kind == "excel":
 
-            text = extract_excel_text(
+            text = extract_excel(
                 data
             )
 
             text_context.append(
                 f"""
-EXCEL FILE: {name}
+EXCEL FILE:
+{filename}
 
 DATA:
-{text[:60000]}
+{text[:70000]}
 """
             )
 
             continue
 
-        # --------------------------
         # CSV
-        # --------------------------
-
         if kind == "csv":
 
-            text = extract_csv_text(
+            text = extract_csv(
                 data
             )
 
             text_context.append(
                 f"""
-CSV FILE: {name}
+CSV FILE:
+{filename}
 
 DATA:
-{text[:60000]}
+{text[:70000]}
 """
             )
 
             continue
 
-        # --------------------------
         # TEXT / CODE
-        # --------------------------
-
         if kind == "text":
 
-            text = decode_text(
+            text = decode_bytes(
                 data
             )
 
             text_context.append(
                 f"""
 TEXT / CODE FILE:
-{name}
+{filename}
 
 CONTENT:
-{text[:80000]}
+{text[:100000]}
 """
             )
 
             continue
 
-        # --------------------------
         # ZIP
-        # --------------------------
-
         if kind == "zip":
 
             text = inspect_zip(
@@ -1644,7 +1728,7 @@ CONTENT:
             text_context.append(
                 f"""
 ZIP FILE:
-{name}
+{filename}
 
 {text}
 """
@@ -1652,187 +1736,264 @@ ZIP FILE:
 
             continue
 
-        # --------------------------
         # UNKNOWN
-        # --------------------------
-
         text_context.append(
             f"""
-UNSUPPORTED / BINARY FILE:
+BINARY FILE:
+{filename}
 
-Name: {name}
-MIME: {mime}
-Size: {len(data)} bytes
+MIME:
+{mime}
 
-The file was accepted, but this
-binary format is not directly parsed
-by the application.
+SIZE:
+{len(data)} bytes
+
+This format was accepted but is not
+directly parsed by the current application.
 """
         )
 
     return (
-        "\n\n".join(text_context),
+        "\n\n".join(
+            text_context
+        ),
         image_parts,
-        preview_items,
     )
 
 
 # ============================================================
-# SYSTEM PROMPT
-# ============================================================
-
-SYSTEM_PROMPT = """
-You are Mo Dark AI, a highly capable multimodal AI assistant.
-
-You can help with:
-
-- programming
-- debugging
-- software architecture
-- Streamlit
-- Python
-- JavaScript
-- HTML/CSS
-- APIs
-- databases
-- automation
-- data analysis
-- documents
-- images
-- videos
-- URLs
-- normal conversation
-- explanations
-- advice
-- writing
-- research-style reasoning
-
-IMPORTANT:
-
-1. Follow the user's exact request.
-2. Never change Streamlit into Flask/FastAPI/etc. unless the user asks.
-3. When the user asks for code, provide complete usable code when appropriate.
-4. For multi-file projects, keep imports, filenames and dependencies consistent.
-5. Do not pretend that code was executed or tested if it was not.
-6. If an image is supplied, inspect its visual content carefully.
-7. If video frames are supplied, reason about the sequence and describe what can actually be inferred.
-8. If documents are supplied, use their extracted content.
-9. If a URL is supplied, use the retrieved page/media context.
-10. If something cannot be verified, say so.
-11. Do not invent facts.
-12. For medical, legal or financial matters, clearly distinguish general information from professional advice.
-13. Answer in the user's language when possible.
-14. If the user asks for a complete project, do not intentionally omit important files.
-15. Prefer practical solutions over vague explanations.
-
-For coding requests use this workflow internally:
-
-REQUEST
-→ REQUIREMENTS
-→ ARCHITECTURE
-→ FILES
-→ IMPLEMENTATION
-→ ERROR REVIEW
-→ DEPENDENCY REVIEW
-→ FINAL ANSWER
-
-Do not expose hidden chain-of-thought.
-Provide concise reasoning summaries instead of private reasoning.
-"""
-
-
-# ============================================================
-# AUTO INTENT DETECTION
+# NORMALIZE ARABIC / INTENT
 # ============================================================
 
 def normalize_text(text):
 
-    return (
-        (text or "")
-        .strip()
-        .lower()
+    if not text:
+        return ""
+
+    text = str(
+        text
+    ).strip().lower()
+
+    replacements = {
+        "أ": "ا",
+        "إ": "ا",
+        "آ": "ا",
+        "ة": "ه",
+        "ى": "ي",
+        "ؤ": "و",
+        "ئ": "ي",
+    }
+
+    for old, new in replacements.items():
+
+        text = text.replace(
+            old,
+            new,
+        )
+
+    # Remove Arabic diacritics
+    text = re.sub(
+        r"[\u064B-\u065F\u0670]",
+        "",
+        text,
     )
 
+    text = re.sub(
+        r"\s+",
+        " ",
+        text,
+    )
 
-def wants_image_generation(text):
+    return text.strip()
 
-    t = normalize_text(text)
 
-    phrases = [
-        "انشئ صورة",
-        "أنشئ صورة",
-        "انشئلي صورة",
-        "أنشئلي صورة",
-        "سوي صورة",
-        "سويلي صورة",
-        "صمم صورة",
-        "صمملی صورة",
-        "ارسم صورة",
-        "ولد صورة",
-        "ولّد صورة",
-        "توليد صورة",
+# ============================================================
+# IMAGE INTENT
+# ============================================================
+
+def wants_image_generation(
+    text,
+):
+
+    t = normalize_text(
+        text
+    )
+
+    # IMPORTANT:
+    # These patterns are intentionally broad
+    # so "انشاء صورة بنت جميلة" works.
+
+    patterns = [
+
+        # Arabic
+        r"انشئ.*صوره",
+        r"انشاء.*صوره",
+        r"انشئلي.*صوره",
+        r"انشاءلي.*صوره",
+        r"سوي.*صوره",
+        r"سويلي.*صوره",
+        r"سوي.*صوره",
+        r"صمم.*صوره",
+        r"صمملي.*صوره",
+        r"صمم لي.*صوره",
+        r"ارسم.*صوره",
+        r"ارسملي.*صوره",
+        r"ولد.*صوره",
+        r"ولّد.*صوره",
+        r"توليد.*صوره",
+        r"اعمل.*صوره",
+        r"اعمللي.*صوره",
+        r"اصنع.*صوره",
+        r"اصنعلي.*صوره",
+
+        # English
+        r"generate.*image",
+        r"create.*image",
+        r"make.*image",
+        r"draw.*image",
+        r"generate.*picture",
+        r"create.*picture",
+        r"make.*picture",
+        r"draw.*picture",
+        r"text to image",
+        r"text-to-image",
+    ]
+
+    for pattern in patterns:
+
+        if re.search(
+            pattern,
+            t,
+        ):
+            return True
+
+    # Direct phrases
+    direct = [
+
+        "انشئ صوره",
+        "انشاء صوره",
+        "انشئلي صوره",
+        "سوي صوره",
+        "سويلي صوره",
+        "صمم صوره",
+        "صمملي صوره",
+        "ارسم صوره",
+        "توليد صوره",
+        "اصنع صوره",
+        "اعمل صوره",
+
         "generate image",
-        "generate a picture",
         "create image",
-        "create a picture",
-        "make an image",
+        "make image",
+        "draw image",
+        "generate picture",
+        "create picture",
         "make a picture",
-        "draw an image",
-        "draw a picture",
     ]
 
     return any(
         phrase in t
-        for phrase in phrases
+        for phrase in direct
     )
 
 
-def wants_video_generation(text):
+# ============================================================
+# VIDEO INTENT
+# ============================================================
 
-    t = normalize_text(text)
+def wants_video_generation(
+    text,
+):
 
-    phrases = [
-        "انشئ فيديو",
-        "أنشئ فيديو",
-        "انشئلي فيديو",
-        "أنشئلي فيديو",
-        "سوي فيديو",
-        "سويلي فيديو",
-        "صمم فيديو",
-        "صمملي فيديو",
-        "ولد فيديو",
-        "ولّد فيديو",
-        "توليد فيديو",
-        "سويها فيديو",
-        "حولها لفيديو",
-        "حول الصورة الى فيديو",
-        "حول الصورة إلى فيديو",
-        "image to video",
-        "image-to-video",
-        "generate video",
-        "create video",
-        "make a video",
-        "text to video",
+    t = normalize_text(
+        text
+    )
+
+    patterns = [
+
+        # Arabic
+        r"انشئ.*فيديو",
+        r"انشاء.*فيديو",
+        r"انشئلي.*فيديو",
+        r"سوي.*فيديو",
+        r"سويلي.*فيديو",
+        r"صمم.*فيديو",
+        r"صمملي.*فيديو",
+        r"ولد.*فيديو",
+        r"توليد.*فيديو",
+        r"اعمل.*فيديو",
+        r"اعمللي.*فيديو",
+        r"اصنع.*فيديو",
+        r"اصنعلي.*فيديو",
+
+        # Image -> Video
+        r"حول.*صوره.*فيديو",
+        r"حول.*الصوره.*فيديو",
+        r"حولها.*فيديو",
+
+        # English
+        r"generate.*video",
+        r"create.*video",
+        r"make.*video",
+        r"text to video",
+        r"text-to-video",
+        r"image to video",
+        r"image-to-video",
     ]
+
+    for pattern in patterns:
+
+        if re.search(
+            pattern,
+            t,
+        ):
+            return True
 
     return any(
         phrase in t
-        for phrase in phrases
+        for phrase in [
+            "انشئ فيديو",
+            "انشاء فيديو",
+            "سوي فيديو",
+            "سويلي فيديو",
+            "صمم فيديو",
+            "توليد فيديو",
+            "اصنع فيديو",
+            "حولها لفيديو",
+            "حول الصورة الى فيديو",
+            "generate video",
+            "create video",
+            "make video",
+            "image to video",
+        ]
     )
 
 
-def wants_image_edit(text):
+# ============================================================
+# IMAGE EDIT
+# ============================================================
 
-    t = normalize_text(text)
+def wants_image_edit(
+    text,
+):
+
+    t = normalize_text(
+        text
+    )
 
     phrases = [
+
         "عدل الصورة",
-        "عدّل الصورة",
+        "عدل الصوره",
         "تعديل الصورة",
+        "تعديل الصوره",
         "غير الصورة",
+        "غير الصوره",
         "غيّر الصورة",
         "حسن الصورة",
+        "حسن الصوره",
         "حسّن الصورة",
+
         "edit image",
         "edit this image",
         "modify image",
@@ -1846,32 +2007,52 @@ def wants_image_edit(text):
     )
 
 
-def has_image_file(files):
+# ============================================================
+# IMAGE FILE
+# ============================================================
 
-    return any(
-        file_kind(f) == "image"
-        for f in files
-    )
-
-
-def first_image_file(files):
+def has_image_file(
+    files,
+):
 
     for file in files:
-        if file_kind(file) == "image":
+
+        if (
+            detect_file_type(file)
+            == "image"
+        ):
+            return True
+
+    return False
+
+
+def first_image_file(
+    files,
+):
+
+    for file in files:
+
+        if (
+            detect_file_type(file)
+            == "image"
+        ):
             return file
 
     return None
 
 
 # ============================================================
-# GENERATION FUNCTIONS
+# GENERATE IMAGE
 # ============================================================
 
-def generate_image(prompt):
+def generate_image(
+    prompt,
+):
 
     if not client:
+
         raise RuntimeError(
-            "HF_TOKEN is missing. Add HF_TOKEN to Streamlit Secrets."
+            "HF_TOKEN غير موجود في Streamlit Secrets."
         )
 
     image = client.text_to_image(
@@ -1881,142 +2062,215 @@ def generate_image(prompt):
         height=IMAGE_HEIGHT,
     )
 
-    return image_to_png_bytes(
+    return image_to_bytes(
         image
     )
 
 
-def generate_video(prompt):
+# ============================================================
+# GENERATE VIDEO
+# ============================================================
+
+def generate_video(
+    prompt,
+):
 
     if not client:
+
         raise RuntimeError(
-            "HF_TOKEN is missing. Add HF_TOKEN to Streamlit Secrets."
+            "HF_TOKEN غير موجود في Streamlit Secrets."
         )
 
-    video = client.text_to_video(
+    result = client.text_to_video(
         prompt=prompt,
         model=VIDEO_MODEL,
     )
 
-    return bytes(video)
+    return bytes(
+        result
+    )
 
 
-def image_to_video(image_bytes, prompt):
+# ============================================================
+# IMAGE -> VIDEO
+# ============================================================
+
+def convert_image_to_video(
+    image_bytes,
+    prompt,
+):
 
     if not client:
+
         raise RuntimeError(
-            "HF_TOKEN is missing. Add HF_TOKEN to Streamlit Secrets."
+            "HF_TOKEN غير موجود في Streamlit Secrets."
         )
 
-    video = client.image_to_video(
+    result = client.image_to_video(
         image=image_bytes,
         prompt=prompt,
         model=IMAGE_VIDEO_MODEL,
     )
 
-    return bytes(video)
+    return bytes(
+        result
+    )
 
 
-def edit_image(image_bytes, prompt):
+# ============================================================
+# EDIT IMAGE
+# ============================================================
+
+def edit_image(
+    image_bytes,
+    prompt,
+):
 
     if not client:
+
         raise RuntimeError(
-            "HF_TOKEN is missing. Add HF_TOKEN to Streamlit Secrets."
+            "HF_TOKEN غير موجود في Streamlit Secrets."
         )
 
-    image = client.image_to_image(
+    result = client.image_to_image(
         image=image_bytes,
         prompt=prompt,
         model=IMAGE_MODEL,
     )
 
-    return image_to_png_bytes(
-        image
+    return image_to_bytes(
+        result
     )
 
 
 # ============================================================
-# CHAT MODEL
+# AI CHAT
 # ============================================================
 
-def call_chat_model(
-    user_prompt,
+SYSTEM_PROMPT = """
+You are Mo Dark AI.
+
+You are a multimodal AI assistant.
+
+Your capabilities include:
+
+Programming
+Software engineering
+Python
+Streamlit
+JavaScript
+HTML
+CSS
+APIs
+Databases
+Debugging
+Project architecture
+Data analysis
+Documents
+Images
+Videos
+URLs
+Audio transcripts
+General questions
+Writing
+Advice
+Research-style reasoning
+
+IMPORTANT:
+
+- Follow the user's exact request.
+- Do not change the requested framework.
+- If the user asks for Streamlit, use Streamlit.
+- If the user asks for complete code, provide complete code.
+- Do not intentionally omit important files.
+- Keep multi-file projects consistent.
+- Check imports and dependencies logically.
+- Never claim you executed code when you did not.
+- If visual content is provided, analyze it.
+- If video frames are provided, analyze the sequence.
+- If documents are provided, use their extracted contents.
+- If a URL is provided, use the retrieved URL content.
+- Do not invent information.
+- Answer in the user's language when appropriate.
+- Be practical and direct.
+
+The application itself handles image generation,
+video generation and image-to-video before reaching you.
+
+Therefore, when the user is asking for generation,
+do not tell them that you cannot generate media.
+"""
+
+
+def chat_with_ai(
+    prompt,
     history,
     text_context="",
     image_parts=None,
 ):
 
     if not client:
+
         raise RuntimeError(
-            "HF_TOKEN is missing. Add HF_TOKEN to Streamlit Secrets."
+            "HF_TOKEN غير موجود. "
+            "أضفه في Streamlit Secrets."
         )
 
-    image_parts = image_parts or []
+    image_parts = (
+        image_parts
+        or []
+    )
 
-    multimodal = bool(
+    is_vision = bool(
         image_parts
     )
 
     model = (
         VISION_MODEL
-        if multimodal
+        if is_vision
         else TEXT_MODEL
     )
 
-    system_message = {
-        "role": "system",
-        "content": SYSTEM_PROMPT,
-    }
-
     messages = [
-        system_message
+        {
+            "role": "system",
+            "content":
+            SYSTEM_PROMPT,
+        }
     ]
 
-    # Keep useful recent history
-    recent_history = history[-12:]
-
-    for item in recent_history:
+    for item in history[-12:]:
 
         messages.append(
             {
-                "role": item["role"],
-                "content": item["content"],
+                "role":
+                item["role"],
+                "content":
+                item["content"],
             }
         )
 
-    context_parts = []
+    context = ""
 
     if text_context:
-        context_parts.append(
-            """
-ATTACHED / RETRIEVED CONTEXT:
 
-Use this information to answer the user's request.
-Do not mention internal processing unless relevant.
-
-"""
+        context = (
+            "\n\n"
+            "ATTACHED / RETRIEVED CONTEXT:\n"
             + text_context
         )
 
-    if context_parts:
-        context_text = "\n\n".join(
-            context_parts
-        )
-    else:
-        context_text = ""
-
-    if multimodal:
+    if is_vision:
 
         content = [
             {
                 "type": "text",
-                "text": (
-                    user_prompt
-                    + "\n\n"
-                    + context_text
-                    + "\n\n"
-                    "Analyze the supplied visual content carefully."
-                ),
+                "text":
+                prompt
+                + context
+                + "\n\n"
+                "Analyze the supplied visual content "
+                "carefully.",
             }
         ]
 
@@ -2033,135 +2287,281 @@ Do not mention internal processing unless relevant.
 
     else:
 
-        final_prompt = user_prompt
-
-        if context_text:
-            final_prompt += (
-                "\n\n"
-                + context_text
-            )
-
         messages.append(
             {
                 "role": "user",
-                "content": final_prompt,
+                "content":
+                prompt + context,
             }
         )
 
     try:
 
-        response = client.chat_completion(
-            model=model,
-            messages=messages,
-            max_tokens=8192,
-            temperature=0.12,
+        response = (
+            client.chat_completion(
+                model=model,
+                messages=messages,
+                max_tokens=8192,
+                temperature=0.12,
+            )
         )
 
     except Exception as first_error:
 
-        # Vision fallback
-        if multimodal:
+        if is_vision:
 
-            try:
-
-                response = client.chat_completion(
+            response = (
+                client.chat_completion(
                     model=VISION_FALLBACK,
                     messages=messages,
                     max_tokens=8192,
                     temperature=0.12,
                 )
-
-            except Exception:
-                raise first_error
+            )
 
         else:
-            raise
+
+            raise first_error
 
     try:
-        return response.choices[0].message.content
+
+        return (
+            response
+            .choices[0]
+            .message
+            .content
+        )
 
     except Exception:
-        return str(response)
+
+        return str(
+            response
+        )
 
 
 # ============================================================
-# FILE PREVIEWS
+# FILE PREVIEW
 # ============================================================
 
-def render_file_preview(uploaded_file):
+def show_file_preview(
+    uploaded_file,
+):
 
-    kind = file_kind(
+    kind = detect_file_type(
         uploaded_file
     )
-
-    name = uploaded_file.name
 
     if kind == "image":
 
         try:
+
             uploaded_file.seek(0)
 
             st.image(
                 uploaded_file,
-                caption=name,
+                caption=uploaded_file.name,
                 width="stretch",
             )
 
         except Exception:
+
             st.caption(
-                f"🖼️ {name}"
+                "🖼️ "
+                + uploaded_file.name
             )
 
     elif kind == "video":
 
         try:
+
             uploaded_file.seek(0)
 
             st.video(
                 uploaded_file
             )
 
-            st.caption(
-                f"🎥 {name}"
-            )
-
         except Exception:
+
             st.caption(
-                f"🎥 {name}"
+                "🎬 "
+                + uploaded_file.name
             )
 
     elif kind == "audio":
 
         try:
+
             uploaded_file.seek(0)
 
             st.audio(
                 uploaded_file
             )
 
-            st.caption(
-                f"🎵 {name}"
-            )
-
         except Exception:
+
             st.caption(
-                f"🎵 {name}"
+                "🎵 "
+                + uploaded_file.name
             )
 
     else:
 
         st.caption(
-            f"📎 {name}"
+            "📎 "
+            + uploaded_file.name
         )
 
 
 # ============================================================
-# DISPLAY OLD MESSAGES
+# CURRENT CHAT
 # ============================================================
 
-for message in messages:
+current_messages = load_messages(
+    st.session_state.session_id
+)
+
+
+# ============================================================
+# WELCOME
+# ============================================================
+
+if not current_messages:
+
+    render_html(
+        """
+<div style="
+    max-width:850px;
+    margin:55px auto 40px auto;
+    text-align:center;
+">
+
+    <div style="
+        width:78px;
+        height:78px;
+        margin:auto;
+        border-radius:24px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        font-size:36px;
+
+        background:
+            linear-gradient(
+                135deg,
+                #00eaff,
+                #2878ff,
+                #7c3cff
+            );
+
+        box-shadow:
+            0 0 55px
+            rgba(0,234,255,.20);
+    ">
+        ⚡
+    </div>
+
+    <div style="
+        font-size:43px;
+        line-height:1.1;
+        font-weight:800;
+        letter-spacing:-2px;
+        margin-top:25px;
+    ">
+        What can I build
+        <span style="
+            color:#00eaff;
+        ">
+            for you?
+        </span>
+    </div>
+
+    <div style="
+        max-width:680px;
+        margin:18px auto 0 auto;
+        color:#7d8798;
+        font-size:14px;
+        line-height:1.9;
+    ">
+        اكتب طلبك فقط.
+        لا تحتاج تختار وضع أو أداة.
+        Mo Dark AI يفهم تلقائياً إذا تريد
+        برمجة، صورة، فيديو، تحليل ملف،
+        تحليل رابط أو محادثة عادية.
+    </div>
+
+    <div style="
+        display:flex;
+        justify-content:center;
+        flex-wrap:wrap;
+        gap:8px;
+        margin-top:25px;
+    ">
+
+        <span style="
+            padding:8px 13px;
+            border-radius:999px;
+            border:1px solid rgba(0,234,255,.13);
+            color:#7d8798;
+            font-size:11px;
+        ">
+            💻 Programming
+        </span>
+
+        <span style="
+            padding:8px 13px;
+            border-radius:999px;
+            border:1px solid rgba(0,234,255,.13);
+            color:#7d8798;
+            font-size:11px;
+        ">
+            🖼️ Images
+        </span>
+
+        <span style="
+            padding:8px 13px;
+            border-radius:999px;
+            border:1px solid rgba(0,234,255,.13);
+            color:#7d8798;
+            font-size:11px;
+        ">
+            🎬 Videos
+        </span>
+
+        <span style="
+            padding:8px 13px;
+            border-radius:999px;
+            border:1px solid rgba(0,234,255,.13);
+            color:#7d8798;
+            font-size:11px;
+        ">
+            📁 Files
+        </span>
+
+        <span style="
+            padding:8px 13px;
+            border-radius:999px;
+            border:1px solid rgba(0,234,255,.13);
+            color:#7d8798;
+            font-size:11px;
+        ">
+            🌐 URLs
+        </span>
+
+    </div>
+
+</div>
+"""
+    )
+
+
+# ============================================================
+# DISPLAY CHAT HISTORY
+# ============================================================
+
+for message in current_messages:
 
     role = message["role"]
+
     content = message["content"]
 
     if role not in {
@@ -2171,8 +2571,7 @@ for message in messages:
         continue
 
     with st.chat_message(
-        "user" if role == "user"
-        else "assistant"
+        role
     ):
 
         st.markdown(
@@ -2187,36 +2586,39 @@ for message in messages:
 try:
 
     chat_value = st.chat_input(
-        "اكتب أي شيء... أنشئ صورة، فيديو، برنامج، حلل ملف، اقرأ رابط، أو اسألني أي شيء",
+        "اكتب أي شيء... صورة، فيديو، كود، ملف، رابط، سؤال...",
         accept_file="multiple",
         file_type=None,
         max_upload_size=2048,
-        key="main_chat",
+        key="main_chat_input",
     )
 
 except TypeError:
 
-    # Compatibility fallback for older Streamlit
     chat_value = st.chat_input(
-        "اكتب أي شيء... أو أرفق ملف",
+        "اكتب أي شيء...",
         accept_file="multiple",
         file_type=None,
-        key="main_chat",
+        key="main_chat_input",
     )
 
 
 # ============================================================
-# HANDLE MESSAGE
+# HANDLE USER REQUEST
 # ============================================================
 
 if chat_value:
 
+    # New Streamlit ChatInputValue
     if isinstance(
         chat_value,
         str,
     ):
 
-        user_prompt = chat_value
+        user_prompt = (
+            chat_value.strip()
+        )
+
         uploaded_files = []
 
     else:
@@ -2228,27 +2630,20 @@ if chat_value:
                 "",
             )
             or ""
+        ).strip()
+
+        uploaded_files = list(
+            getattr(
+                chat_value,
+                "files",
+                [],
+            )
+            or []
         )
 
-        try:
-
-            uploaded_files = list(
-                getattr(
-                    chat_value,
-                    "files",
-                    [],
-                )
-                or []
-            )
-
-        except Exception:
-            uploaded_files = []
-
-    user_prompt = user_prompt.strip()
-
-    # -----------------------------------------
-    # If only files were uploaded
-    # -----------------------------------------
+    # ------------------------------------------
+    # If files only
+    # ------------------------------------------
 
     if (
         not user_prompt
@@ -2257,67 +2652,75 @@ if chat_value:
 
         user_prompt = (
             "حلل الملفات المرفقة بالتفصيل "
-            "واشرح لي ماذا تحتوي وأهم الأشياء "
-            "التي يمكن ملاحظتها."
+            "واشرح لي محتواها وأهم المعلومات "
+            "الموجودة فيها."
         )
 
     if not user_prompt:
+
         st.stop()
 
-    # -----------------------------------------
-    # Session title
-    # -----------------------------------------
+    # ------------------------------------------
+    # Title
+    # ------------------------------------------
 
-    current_messages = load_messages(
+    old_messages = load_messages(
         st.session_state.session_id
     )
 
-    if len(current_messages) == 0:
+    if not old_messages:
 
-        title = user_prompt.replace(
-            "\n",
-            " ",
-        ).strip()
+        title = (
+            user_prompt
+            .replace("\n", " ")
+            .strip()
+        )
 
         if len(title) > 55:
-            title = title[:55] + "..."
+
+            title = (
+                title[:55]
+                + "..."
+            )
 
         update_session_title(
             st.session_state.session_id,
             title,
         )
 
-    # -----------------------------------------
-    # Save user message
-    # -----------------------------------------
+    # ------------------------------------------
+    # Save user
+    # ------------------------------------------
 
-    file_names = [
-        f.name
-        for f in uploaded_files
+    filenames = [
+        file.name
+        for file in uploaded_files
     ]
 
-    user_saved_content = user_prompt
+    saved_user_text = user_prompt
 
-    if file_names:
+    if filenames:
 
-        user_saved_content += (
+        saved_user_text += (
             "\n\n📎 الملفات: "
             + ", ".join(
-                file_names
+                filenames
             )
         )
 
     save_message(
         st.session_state.session_id,
         "user",
-        user_saved_content,
+        saved_user_text,
     )
 
-    # -----------------------------------------
-    # Show user message
-    # -----------------------------------------
+    # ------------------------------------------
+    # Display user
+    # ------------------------------------------
 
-    with st.chat_message("user"):
+    with st.chat_message(
+        "user"
+    ):
 
         st.markdown(
             user_prompt
@@ -2325,53 +2728,58 @@ if chat_value:
 
         if uploaded_files:
 
-            for uploaded_file in uploaded_files:
+            for file in uploaded_files:
 
                 with st.expander(
-                    f"📎 {uploaded_file.name}",
+                    "📎 "
+                    + file.name,
                     expanded=False,
                 ):
 
-                    render_file_preview(
-                        uploaded_file
+                    show_file_preview(
+                        file
                     )
 
-    # -----------------------------------------
-    # Process attachments
-    # -----------------------------------------
+    # ------------------------------------------
+    # AI
+    # ------------------------------------------
 
-    with st.chat_message("assistant"):
+    with st.chat_message(
+        "assistant"
+    ):
 
-        with st.spinner(
-            "Mo Dark AI يعمل..."
-        ):
+        try:
 
-            try:
+            with st.spinner(
+                "Mo Dark AI يعمل..."
+            ):
+
+                # ==================================
+                # PROCESS FILES
+                # ==================================
 
                 text_context = ""
                 image_parts = []
-                preview_items = []
 
                 if uploaded_files:
 
                     (
                         text_context,
                         image_parts,
-                        preview_items,
                     ) = process_files(
                         uploaded_files
                     )
 
-                # ---------------------------------
-                # URL processing
-                # ---------------------------------
+                # ==================================
+                # PROCESS URLS
+                # ==================================
 
-                urls = extract_urls(
+                urls = find_urls(
                     user_prompt
                 )
 
                 url_context = []
-                url_images = []
+                url_image_parts = []
 
                 for url in urls[:3]:
 
@@ -2385,14 +2793,16 @@ if chat_value:
 
                     if kind == "image":
 
-                        url_images.append(
+                        url_image_parts.append(
                             {
                                 "type":
                                 "image_url",
                                 "image_url": {
                                     "url":
-                                    bytes_to_data_url(
-                                        result["data"],
+                                    data_url(
+                                        result[
+                                            "data"
+                                        ],
                                         result.get(
                                             "mime",
                                             "image/jpeg",
@@ -2410,24 +2820,31 @@ if chat_value:
 
                         frames, error = (
                             extract_video_frames(
-                                result["data"]
+                                result[
+                                    "data"
+                                ]
                             )
                         )
 
                         url_context.append(
-                            f"VIDEO URL:\n{url}\n"
-                            f"Sampled frames: {len(frames)}"
+                            f"""
+VIDEO URL:
+{url}
+
+Sampled frames:
+{len(frames)}
+"""
                         )
 
                         for frame in frames:
 
-                            url_images.append(
+                            url_image_parts.append(
                                 {
                                     "type":
                                     "image_url",
                                     "image_url": {
                                         "url":
-                                        bytes_to_data_url(
+                                        data_url(
                                             frame,
                                             "image/png",
                                         )
@@ -2436,8 +2853,10 @@ if chat_value:
                             )
 
                         if error:
+
                             url_context.append(
-                                f"Video note: {error}"
+                                "Video note: "
+                                + error
                             )
 
                     else:
@@ -2459,53 +2878,57 @@ if chat_value:
                     )
 
                 image_parts.extend(
-                    url_images
+                    url_image_parts
                 )
 
-                # ---------------------------------
-                # Auto route
-                # ---------------------------------
+                # ==================================
+                # AUTO ROUTER
+                # ==================================
 
-                has_img = has_image_file(
-                    uploaded_files
+                image_attached = (
+                    has_image_file(
+                        uploaded_files
+                    )
                 )
 
-                img_file = first_image_file(
-                    uploaded_files
+                image_file = (
+                    first_image_file(
+                        uploaded_files
+                    )
                 )
 
-                # VIDEO GENERATION
+                # ==================================
+                # 1. VIDEO
+                # ==================================
+
                 if wants_video_generation(
                     user_prompt
                 ):
 
+                    # Image -> Video
                     if (
-                        has_img
-                        and (
-                            "حول" in normalize_text(
-                                user_prompt
-                            )
-                            or
-                            "تحويل" in normalize_text(
-                                user_prompt
-                            )
-                            or
-                            "image" in normalize_text(
-                                user_prompt
-                            )
-                        )
+                        image_attached
+                        and image_file
                     ):
 
                         image_bytes = (
-                            img_file.getvalue()
+                            image_file.getvalue()
+                        )
+
+                        status = st.empty()
+
+                        status.info(
+                            "🎬 جاري تحويل الصورة إلى فيديو..."
                         )
 
                         video_bytes = (
-                            image_to_video(
+                            convert_image_to_video(
                                 image_bytes,
                                 user_prompt,
                             )
                         )
+
+                        status.empty()
 
                         st.success(
                             "🎬 تم إنشاء الفيديو"
@@ -2518,17 +2941,26 @@ if chat_value:
                         st.download_button(
                             "⬇️ تنزيل الفيديو",
                             data=video_bytes,
-                            file_name="mo_dark_video.mp4",
+                            file_name=(
+                                "mo_dark_video.mp4"
+                            ),
                             mime="video/mp4",
                             use_container_width=True,
                         )
 
                         answer = (
                             "🎬 تم إنشاء الفيديو "
-                            "من الصورة والطلب."
+                            "من الصورة حسب طلبك."
                         )
 
+                    # Text -> Video
                     else:
+
+                        status = st.empty()
+
+                        status.info(
+                            "🎬 جاري إنشاء الفيديو..."
+                        )
 
                         video_bytes = (
                             generate_video(
@@ -2536,6 +2968,8 @@ if chat_value:
                             )
                         )
 
+                        status.empty()
+
                         st.success(
                             "🎬 تم إنشاء الفيديو"
                         )
@@ -2547,7 +2981,9 @@ if chat_value:
                         st.download_button(
                             "⬇️ تنزيل الفيديو",
                             data=video_bytes,
-                            file_name="mo_dark_video.mp4",
+                            file_name=(
+                                "mo_dark_video.mp4"
+                            ),
                             mime="video/mp4",
                             use_container_width=True,
                         )
@@ -2557,22 +2993,30 @@ if chat_value:
                             "حسب طلبك."
                         )
 
-                # IMAGE EDIT
+                # ==================================
+                # 2. IMAGE EDIT
+                # ==================================
+
                 elif (
-                    has_img
+                    image_attached
+                    and image_file
                     and wants_image_edit(
                         user_prompt
                     )
                 ):
 
-                    image_bytes = (
-                        img_file.getvalue()
+                    status = st.empty()
+
+                    status.info(
+                        "🖼️ جاري تعديل الصورة..."
                     )
 
                     output = edit_image(
-                        image_bytes,
+                        image_file.getvalue(),
                         user_prompt,
                     )
+
+                    status.empty()
 
                     st.success(
                         "🖼️ تم تعديل الصورة"
@@ -2586,7 +3030,9 @@ if chat_value:
                     st.download_button(
                         "⬇️ تنزيل الصورة",
                         data=output,
-                        file_name="mo_dark_edited.png",
+                        file_name=(
+                            "mo_dark_edited.png"
+                        ),
                         mime="image/png",
                         use_container_width=True,
                     )
@@ -2596,52 +3042,64 @@ if chat_value:
                         "حسب طلبك."
                     )
 
-                # IMAGE GENERATION
+                # ==================================
+                # 3. IMAGE GENERATION
+                # ==================================
+
                 elif wants_image_generation(
                     user_prompt
                 ):
 
-                    image_bytes = (
-                        generate_image(
-                            user_prompt
-                        )
+                    status = st.empty()
+
+                    status.info(
+                        "🖼️ جاري إنشاء الصورة..."
                     )
+
+                    output = generate_image(
+                        user_prompt
+                    )
+
+                    status.empty()
 
                     st.success(
                         "🖼️ تم إنشاء الصورة"
                     )
 
                     st.image(
-                        image_bytes,
+                        output,
                         width="stretch",
                     )
 
                     st.download_button(
                         "⬇️ تنزيل الصورة",
-                        data=image_bytes,
-                        file_name="mo_dark_image.png",
+                        data=output,
+                        file_name=(
+                            "mo_dark_image.png"
+                        ),
                         mime="image/png",
                         use_container_width=True,
                     )
 
                     answer = (
                         "🖼️ تم إنشاء الصورة "
-                        "بالمقاس القياسي 1024×1024."
+                        "بالمقاس القياسي "
+                        "1024×1024."
                     )
 
-                # NORMAL AI / VISION / FILE / URL
+                # ==================================
+                # 4. NORMAL CHAT / VISION
+                # ==================================
+
                 else:
 
-                    # Build history
-                    history_rows = (
-                        load_messages(
-                            st.session_state.session_id
-                        )
+                    rows = load_messages(
+                        st.session_state.session_id
                     )
 
                     history = []
 
-                    for row in history_rows[-12:]:
+                    for row in rows:
 
                         if row["role"] in {
                             "user",
@@ -2657,17 +3115,19 @@ if chat_value:
                                 }
                             )
 
-                    # Remove current saved user message
-                    # from history because it is passed
-                    # separately below.
-                    if history and history[-1][
-                        "role"
-                    ] == "user":
+                    # Current user is already stored,
+                    # but we pass it separately.
+                    if (
+                        history
+                        and history[-1][
+                            "role"
+                        ] == "user"
+                    ):
 
                         history = history[:-1]
 
-                    answer = call_chat_model(
-                        user_prompt=user_prompt,
+                    answer = chat_with_ai(
+                        prompt=user_prompt,
                         history=history,
                         text_context=text_context,
                         image_parts=image_parts,
@@ -2677,9 +3137,9 @@ if chat_value:
                         answer
                     )
 
-                # ---------------------------------
-                # Save assistant response
-                # ---------------------------------
+                # ==================================
+                # SAVE ANSWER
+                # ==================================
 
                 save_message(
                     st.session_state.session_id,
@@ -2687,49 +3147,58 @@ if chat_value:
                     answer,
                 )
 
-            except Exception as e:
+        except Exception as error:
 
-                error_message = (
-                    "حدث خطأ أثناء تنفيذ الطلب.\n\n"
-                    f"```text\n{str(e)}\n```\n\n"
-                    "إذا كان الخطأ متعلقاً بالنموذج أو "
-                    "الخدمة، قد يكون النموذج غير متاح "
-                    "حالياً عبر مزود Hugging Face."
-                )
+            error_text = str(
+                error
+            )
 
-                st.error(
-                    error_message
-                )
+            error_message = (
+                "❌ صار خطأ أثناء تنفيذ الطلب.\n\n"
+                "```text\n"
+                + error_text
+                + "\n```\n\n"
+                "إذا كان الطلب إنشاء صورة أو فيديو، "
+                "فقد يكون نموذج التوليد غير متاح "
+                "حالياً عبر Hugging Face أو انتهت "
+                "الحصة المجانية المتاحة."
+            )
 
-                save_message(
-                    st.session_state.session_id,
-                    "assistant",
-                    error_message,
-                )
+            st.error(
+                error_message
+            )
+
+            save_message(
+                st.session_state.session_id,
+                "assistant",
+                error_message,
+            )
 
 
 # ============================================================
 # FOOTER
 # ============================================================
 
-safe_html(
+render_html(
     """
 <div style="
     position:fixed;
-    bottom:8px;
     left:0;
     right:0;
+    bottom:8px;
     text-align:center;
     pointer-events:none;
     z-index:1;
 ">
+
     <span style="
-        color:#394354;
+        color:#343d4d;
         font-size:9px;
         letter-spacing:1px;
     ">
         MO DARK AI • MULTIMODAL INTELLIGENCE
     </span>
+
 </div>
 """
 )
