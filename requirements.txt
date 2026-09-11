@@ -1,10 +1,11 @@
 streamlit
 huggingface_hub
 requests
-beautifulsoup4
-pypdf
+Pillow
+opencv-python-headless
+pymupdf
 python-docx
 openpyxl
-python-pptx
-opencv-python-headless
-Pillow
+pandas
+numpy
+beautifulsoup4
