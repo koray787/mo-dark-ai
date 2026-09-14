@@ -79,7 +79,11 @@ st.set_page_config(
 APP_NAME = "Mo Dark AI"
 VERSION = "4.0 Ultimate"
 
-DB_FILE = "mo_dark_ultimate.db"
+# Streamlit Cloud's application directory can be read-only.
+# Store the SQLite database in a writable runtime directory.
+DATA_DIR = Path("/tmp/mo_dark_ai")
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_FILE = str(DATA_DIR / "mo_dark_ultimate.db")
 MAX_HISTORY = 40
 MAX_SEARCH_RESULTS = 6
 WEB_TIMEOUT = 15
@@ -116,7 +120,16 @@ LANGUAGE_NAMES = {
 # ============================================================
 
 def db():
-    return sqlite3.connect(DB_FILE, check_same_thread=False)
+    """Open a SQLite connection that is safe for Streamlit Cloud runtime."""
+    conn = sqlite3.connect(
+        DB_FILE,
+        timeout=30,
+        check_same_thread=False,
+    )
+    conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    return conn
 
 
 def init_db():
@@ -158,7 +171,10 @@ def create_session(title="محادثة جديدة"):
     now = datetime.now().isoformat(timespec="seconds")
     conn = db()
     conn.execute(
-        "INSERT INTO sessions VALUES (?, ?, ?, ?)",
+        """
+        INSERT INTO sessions (id, title, created_at, updated_at)
+        VALUES (?, ?, ?, ?)
+        """,
         (sid, title, now, now),
     )
     conn.commit()
